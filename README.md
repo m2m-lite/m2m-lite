@@ -33,7 +33,7 @@ Example message format with custom keys:
 Clone the repository:
 
 ```
-git clone https://github.com/geoffwhittington/meshtastic-matrix-relay.git
+git clone https://github.com/m2m-lite/m2m-lite.git
 ```
 
 ### Setup

@@ -24,6 +24,7 @@ from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
 from datetime import datetime
+from config_editor import load_config
 
 
 class CustomFormatter(logging.Formatter):
@@ -324,6 +325,7 @@ async def on_room_message(
 
 
 async def main():
+    load_config()
     global matrix_client
 
     # Initialize the SQLite database

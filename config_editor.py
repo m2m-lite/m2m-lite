@@ -198,7 +198,8 @@ def apply_changes():
 
     save_config(new_config)
 
-    messagebox.showinfo("Success", "Configuration changes saved.")
+    # Close the window
+    root.destroy()
 
 
 def add_matrix_room(room=None, meshtastic_channel=None):
@@ -292,7 +293,7 @@ remove_button.pack(side="left")
 logging_level_var = create_logging_frame(root)
 
 # Apply button
-apply_button = tk.Button(root, text="Apply", command=apply_changes)
+apply_button = tk.Button(root, text="Save & Launch Relay", command=apply_changes)
 apply_button.pack(side="bottom", pady=10)
 
 root.mainloop()

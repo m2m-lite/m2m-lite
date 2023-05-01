@@ -1,6 +1,9 @@
 # Meshtastic <=> Matrix Relay (Lite)
 
-A powerful and easy-to-use relay between Meshtastic devices and Matrix chat rooms, allowing seamless communication across platforms. This opens the door for bridging Meshtastic devices to [many other platforms](https://matrix.org/bridges/).
+A powerful (yet lightweight!) and easy-to-use relay between Meshtastic devices and Matrix chat rooms, allowing seamless communication across platforms. This opens the door for bridging Meshtastic devices to [many other platforms](https://matrix.org/bridges/).
+
+A lightweight fork of:
+https://github.com/geoffwhittington/meshtastic-matrix-relay
 
 ## Features
 

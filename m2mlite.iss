@@ -4,7 +4,7 @@
 //WizardSmallImageFile=smallwiz.bmp
 
 AppName=Matrix <> Meshtastic Relay (Lite)
-AppVersion=0.3.5
+AppVersion={#AppVersion}
 DefaultDirName={userpf}\M2M Lite
 DefaultGroupName=M2MLite
 UninstallFilesDir={app}
@@ -104,9 +104,9 @@ begin
   MatrixMeshtasticPage.Edits[0].Hint := '!someroomid:example.matrix.org';
   MatrixMeshtasticPage.Edits[1].Hint := '0-7 (default 0)';
 
-  OptionsPage.Add('Detailed logging');
+  OptionsPage.Add('Debug Logging Mode');
   OptionsPage.Add('Radio broadcasts enabled');
-  OptionsPage.Values[0] := True;
+  OptionsPage.Values[0] := False;
   OptionsPage.Values[1] := True;
 end;
 

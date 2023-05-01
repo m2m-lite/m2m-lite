@@ -9,7 +9,7 @@ DefaultDirName={userpf}\M2M Lite
 DefaultGroupName=M2MLite
 UninstallFilesDir={app}
 OutputDir=.
-OutputBaseFilename=M2MLite_setup
+OutputBaseFilename=M2M-Lite_setup
 PrivilegesRequiredOverridesAllowed=dialog commandline
 
 [Files]

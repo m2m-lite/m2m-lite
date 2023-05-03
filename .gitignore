@@ -3,3 +3,5 @@
 config.yaml
 meshtastic.sqlite
 ./plugins/__pycache__
+*.pyc 
+.niostore

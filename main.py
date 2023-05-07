@@ -23,7 +23,6 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
-from datetime import datetime
 from config_editor import load_config
 
 
@@ -63,7 +62,7 @@ logger.setLevel(log_level)
 logger.propagate = False  # Add this line to prevent double logging
 
 formatter = CustomFormatter(
-    fmt=f"%(asctime)s %(levelname)s:%(name)s:%(message)s",
+    fmt="%(asctime)s %(levelname)s:%(name)s:%(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     converter=utc_converter,
 )
@@ -77,8 +76,7 @@ def initialize_database():
     with sqlite3.connect("meshtastic.sqlite") as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "CREATE TABLE IF NOT EXISTS longnames (meshtastic_id TEXT PRIMARY KEY, longname TEXT)"
-        )
+            "CREATE TABLE IF NOT EXISTS longnames (meshtastic_id TEXT PRIMARY KEY, longname TEXT)")
         conn.commit()
 
 
@@ -87,8 +85,7 @@ def get_longname(meshtastic_id):
     with sqlite3.connect("meshtastic.sqlite") as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT longname FROM longnames WHERE meshtastic_id=?", (meshtastic_id,)
-        )
+            "SELECT longname FROM longnames WHERE meshtastic_id=?", (meshtastic_id,))
         result = cursor.fetchone()
     return result[0] if result else None
 
@@ -181,7 +178,7 @@ async def matrix_relay(matrix_client, room_id, message, longname, meshnet_name):
         logger.info(f"Sent inbound radio message to matrix room: {room_id}")
 
     except asyncio.TimeoutError:
-        logger.error(f"Timed out while waiting for Matrix response")
+        logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
         logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
 
@@ -199,7 +196,7 @@ def on_meshtastic_message(packet, loop=None):
             if packet["decoded"]["portnum"] == "TEXT_MESSAGE_APP":
                 channel = 0
             else:
-                logger.debug(f"Unknown packet")
+                logger.debug("Unknown packet")
                 return
 
         # Check if the channel is mapped to a Matrix room in the configuration
@@ -213,17 +210,13 @@ def on_meshtastic_message(packet, loop=None):
             logger.debug(f"Skipping message from unmapped channel {channel}")
             return
 
-        logger.info(
-            f"Processing inbound radio message from {sender} on channel {channel}"
-        )
+        logger.info(f"Processing inbound radio message from {sender} on channel {channel}")
 
         longname = get_longname(sender) or sender
         meshnet_name = relay_config["meshtastic"]["meshnet_name"]
 
         formatted_message = f"[{longname}/{meshnet_name}]: {text}"
-        logger.info(
-            f"Relaying Meshtastic message from {longname} to Matrix: {formatted_message}"
-        )
+        logger.info(f"Relaying Meshtastic message from {longname} to Matrix: {formatted_message}")
 
         for room in matrix_rooms:
             if room["meshtastic_channel"] == channel:
@@ -246,12 +239,10 @@ def on_meshtastic_message(packet, loop=None):
         elif portnum == "ADMIN_APP":
             logger.debug("Ignoring Admin packet")
         else:
-            logger.debug(f"Ignoring Unknown packet")
+            logger.debug("Ignoring Unknown packet")
 
 
-def truncate_message(
-    text, max_bytes=227
-):  # 234 is the maximum that we can run without an error. Trying it for awhile, otherwise lower this to 230 or less.
+def truncate_message(text, max_bytes=227):
     """
     Truncate the given text to fit within the specified byte size.
 
@@ -264,8 +255,7 @@ def truncate_message(
 
 
 # Callback for new messages in Matrix room
-async def on_room_message(
-    room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]) -> None:
+async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]) -> None:
 
     full_display_name = "Unknown user"
     
@@ -354,13 +344,13 @@ async def main():
         await join_matrix_room(matrix_client, room["id"])
 
     # Register the Meshtastic message callback
-    logger.info(f"Listening for inbound radio messages ...")
+    logger.info("Listening for inbound radio messages ...")
     pub.subscribe(
         on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
     )
 
     # Register the message callback
-    logger.info(f"Listening for inbound matrix messages ...")
+    logger.info("Listening for inbound matrix messages ...")
     matrix_client.add_event_callback(
         on_room_message, (RoomMessageText, RoomMessageNotice)
     )

@@ -17,7 +17,6 @@ from nio import (
     AsyncClientConfig,
     MatrixRoom,
     RoomMessageText,
-    RoomAliasEvent,
     RoomMessageNotice,
 )
 from pubsub import pub
@@ -44,10 +43,8 @@ class CustomFormatter(logging.Formatter):
 def utc_converter(timestamp, _):
     return time.gmtime(timestamp)
 
-
-bot_start_time = int(
-    time.time() * 1000
-)  # Timestamp when the bot starts, used to filter out old messages
+# Timestamp when the bot starts, used to filter out old messages
+bot_start_time = int(time.time() * 1000)
 
 # Load configuration
 with open("config.yaml", "r") as f:
@@ -128,6 +125,7 @@ async def join_matrix_room(matrix_client, room_id_or_alias: str) -> None:
             response = await matrix_client.join(room_id)
             if response and hasattr(response, "room_id"):
                 logger.info(f"Joined room '{room_id_or_alias}' successfully")
+                update_matrix_room_id(room_id_or_alias, room_id)  # Update the room ID in matrix_rooms
             else:
                 logger.error(
                     f"Failed to join room '{room_id_or_alias}': {response.message}"
@@ -156,6 +154,12 @@ matrix_homeserver = relay_config["matrix"]["homeserver"]
 matrix_access_token = relay_config["matrix"]["access_token"]
 bot_user_id = relay_config["matrix"]["bot_user_id"]
 matrix_rooms: List[dict] = relay_config["matrix_rooms"]
+
+def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
+    for room in matrix_rooms:
+        if room["id"] == room_id_or_alias:
+            room["id"] = resolved_room_id
+            break
 
 
 # Send message to the Matrix room

@@ -363,6 +363,13 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
 
 async def main():
     load_config()
+
+    try:
+        with open("config.yaml", "r") as f:
+            relay_config = yaml.load(f, Loader=SafeLoader)
+    except FileNotFoundError:
+        logger.error("Config file not found, exiting...")
+
     global matrix_client
 
     # Initialize the SQLite database

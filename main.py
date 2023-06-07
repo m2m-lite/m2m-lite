@@ -74,6 +74,8 @@ def initialize_database():
         cursor = conn.cursor()
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS longnames (meshtastic_id TEXT PRIMARY KEY, longname TEXT)")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS shortnames (meshtastic_id TEXT PRIMARY KEY, shortname TEXT)")
         conn.commit()
 
 
@@ -83,6 +85,14 @@ def get_longname(meshtastic_id):
         cursor = conn.cursor()
         cursor.execute(
             "SELECT longname FROM longnames WHERE meshtastic_id=?", (meshtastic_id,))
+        result = cursor.fetchone()
+    return result[0] if result else None
+
+def get_shortname(meshtastic_id):
+    with sqlite3.connect("meshtastic.sqlite") as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT shortname FROM shortnames WHERE meshtastic_id=?", (meshtastic_id,))
         result = cursor.fetchone()
     return result[0] if result else None
 
@@ -97,6 +107,22 @@ def save_longname(meshtastic_id, longname):
         conn.commit()
 
 
+def save_shortname(meshtastic_id, shortname):
+    with sqlite3.connect("meshtastic.sqlite") as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO shortnames (meshtastic_id, shortname) VALUES (?, ?)",
+            (meshtastic_id, shortname),
+        )
+        conn.commit()
+
+
+
+
+
+
+
+
 def update_longnames():
     if meshtastic_interface.nodes:
         for node in meshtastic_interface.nodes.values():
@@ -105,6 +131,16 @@ def update_longnames():
                 meshtastic_id = user["id"]
                 longname = user.get("longName", "N/A")
                 save_longname(meshtastic_id, longname)
+
+
+def update_shortnames():
+    if meshtastic_interface.nodes:
+        for node in meshtastic_interface.nodes.values():
+            user = node.get("user")
+            if user:
+                meshtastic_id = user["id"]
+                shortname = user.get("shortName", "N/A")
+                save_shortname(meshtastic_id, shortname)
 
 
 async def join_matrix_room(matrix_client, room_id_or_alias: str) -> None:
@@ -163,12 +199,13 @@ def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
 
 
 # Send message to the Matrix room
-async def matrix_relay(matrix_client, room_id, message, longname, meshnet_name):
+async def matrix_relay(matrix_client, room_id, message, longname, shortname, meshnet_name):
     try:
         content = {
             "msgtype": "m.text",
             "body": message,
             "meshtastic_longname": longname,
+            "meshtastic_shortname": shortname,
             "meshtastic_meshnet": meshnet_name,
         }
         await asyncio.wait_for(
@@ -217,6 +254,7 @@ def on_meshtastic_message(packet, loop=None):
         logger.info(f"Processing inbound radio message from {sender} on channel {channel}")
 
         longname = get_longname(sender) or sender
+        shortname = get_shortname(sender) or sender
         meshnet_name = relay_config["meshtastic"]["meshnet_name"]
 
         formatted_message = f"[{longname}/{meshnet_name}]: {text}"
@@ -230,6 +268,7 @@ def on_meshtastic_message(packet, loop=None):
                         room["id"],
                         formatted_message,
                         longname,
+                        shortname,
                         meshnet_name,
                     ),
                     loop=loop,
@@ -270,6 +309,7 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
             text = event.body.strip()
 
             longname = event.source["content"].get("meshtastic_longname")
+            shortname = event.source["content"].get("meshtastic_shortname")
             meshnet_name = event.source["content"].get("meshtastic_meshnet")
             local_meshnet_name = relay_config["meshtastic"]["meshnet_name"]
 
@@ -277,9 +317,8 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
                 full_display_name = f"{longname}/{meshnet_name}"
                 if meshnet_name != local_meshnet_name:
                     logger.info(f"Processing message from remote meshnet: {text}")
-                    short_longname = longname[:3]
                     short_meshnet_name = meshnet_name[:4]
-                    prefix = f"{short_longname}/{short_meshnet_name}: "
+                    prefix = f"{shortname}/{short_meshnet_name}: "
                     text = re.sub(rf"^\[{full_display_name}\]: ", "", text)  # Remove the original prefix from the text
                     text = truncate_message(text)
                     full_message = f"{prefix}{text}"
@@ -362,8 +401,9 @@ async def main():
     # Start the Matrix client
     while True:
         try:
-            # Update longnames
+            # Update longname & shortname
             update_longnames()
+            update_shortnames()
 
             logger.info("Syncing with Matrix server...")
             await matrix_client.sync_forever(timeout=30000)

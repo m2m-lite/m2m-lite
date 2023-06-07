@@ -309,7 +309,7 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
             text = event.body.strip()
 
             longname = event.source["content"].get("meshtastic_longname")
-            shortname = event.source["content"].get("meshtastic_shortname")
+            shortname = event.source["content"].get("meshtastic_shortname", None)
             meshnet_name = event.source["content"].get("meshtastic_meshnet")
             local_meshnet_name = relay_config["meshtastic"]["meshnet_name"]
 
@@ -318,6 +318,10 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
                 if meshnet_name != local_meshnet_name:
                     logger.info(f"Processing message from remote meshnet: {text}")
                     short_meshnet_name = meshnet_name[:4]
+
+                    # If shortname is None, truncate the longname to 3 characters
+                    if shortname is None:
+                        shortname = longname[:3]
                     prefix = f"{shortname}/{short_meshnet_name}: "
                     text = re.sub(rf"^\[{full_display_name}\]: ", "", text)  # Remove the original prefix from the text
                     text = truncate_message(text)

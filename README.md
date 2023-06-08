@@ -14,7 +14,8 @@ https://github.com/geoffwhittington/meshtastic-matrix-relay
 - SQLite database to store Meshtastic longnames for improved functionality
 - Customizable logging level for easy debugging
 - Configurable through a simple YAML file
-- **New:** Supports mapping multiple rooms and channels 1:1
+- Supports mapping multiple rooms and channels 1:1
+- **New:** Now uses Meshtastic shortnames when relaying messages from remote meshnets
 
 ## Custom Keys in Matrix Messages
 

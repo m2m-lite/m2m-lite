@@ -29,6 +29,7 @@ Example message format with custom keys:
 "body": "[Alice/VeryCoolMeshnet]: Hello from my very cool meshnet!",
 "meshtastic_longname": "Alice",
 "meshtastic_meshnet": "VeryCoolMeshnet"
+"meshtastic_shortname": "Ally"
 }
 ```
 

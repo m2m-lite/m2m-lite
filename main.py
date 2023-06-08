@@ -22,7 +22,7 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
-from config_editor import load_config
+#from config_editor import load_config
 
 
 class CustomFormatter(logging.Formatter):
@@ -362,13 +362,13 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
 
 
 async def main():
-    load_config()
+    # load_config()
 
-    try:
-        with open("config.yaml", "r") as f:
-            relay_config = yaml.load(f, Loader=SafeLoader)
-    except FileNotFoundError:
-        logger.error("Config file not found, exiting...")
+    #try:
+    #    with open("config.yaml", "r") as f:
+    #        relay_config = yaml.load(f, Loader=SafeLoader)
+    #except FileNotFoundError:
+    #    logger.error("Config file not found, exiting...")
 
     global matrix_client
 

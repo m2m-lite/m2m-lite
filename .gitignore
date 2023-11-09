@@ -5,3 +5,4 @@ meshtastic.sqlite
 ./plugins/__pycache__
 *.pyc 
 .niostore
+credentials.json

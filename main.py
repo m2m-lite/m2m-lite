@@ -11,6 +11,7 @@ import yaml
 import certifi
 import ssl
 import os
+import getpass
 import json
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
@@ -82,22 +83,43 @@ def initialize_database():
             "CREATE TABLE IF NOT EXISTS shortnames (meshtastic_id TEXT PRIMARY KEY, shortname TEXT)")
         conn.commit()
 
-async def login_and_save(username, password, homeserver):
-    client = AsyncClient(homeserver, username)
-    response = await client.login(password)
-    if isinstance(response, LoginResponse):
-        credentials = {
-            "user_id": response.user_id,
-            "device_id": response.device_id,
-            "access_token": response.access_token,
-            "homeserver": homeserver
-        }
-        with open("credentials.json", "w") as f:
-            json.dump(credentials, f)
-        print("Login successful. Credentials saved.")
-        return client, credentials
-    else:
-        print("Login failed. Please check your username/password and try again.")
+async def login_and_save():
+
+    # Prompt the user for their username, password, and homeserver
+    print("First time setup detected.")
+    homeserver = input("Matrix homeserver URL (e.g., server.com or https://server.com): ")
+    username = input("Matrix username: ")
+
+    # Prepend https:// to the homeserver URL if not present
+    homeserver = f"https://{homeserver}" if not homeserver.startswith("http://") and not homeserver.startswith("https://") else homeserver
+    
+    # Format username to include the full user ID if not provided
+    username = f"@{username}" if not username.startswith("@") else username
+    username = f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
+
+    # Securely prompt for the password without echoing it
+    password = getpass.getpass(prompt="Matrix password: ")
+
+    try:
+        client = AsyncClient(homeserver, username)
+        response = await client.login(password)
+        
+        if isinstance(response, LoginResponse):
+            credentials = {
+                "user_id": response.user_id,
+                "device_id": response.device_id,
+                "access_token": response.access_token,
+                "homeserver": homeserver
+            }
+            with open("credentials.json", "w") as f:
+                json.dump(credentials, f)
+            print("Login successful. Credentials saved.")
+            return client, credentials
+        else:
+            print("Login failed. Please check your username/password and try again.")
+            return None, None
+    except Exception as e:
+        print(f"An error occurred during login: {e}")
         return None, None
 
 
@@ -137,11 +159,6 @@ def save_shortname(meshtastic_id, shortname):
             (meshtastic_id, shortname),
         )
         conn.commit()
-
-
-
-
-
 
 
 
@@ -396,62 +413,55 @@ async def main():
     # Create SSL context using certifi's certificates
     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-    # Check if credentials.json exists
-    if os.path.isfile("credentials.json"):
-        # Load existing credentials
-        with open("credentials.json", "r") as f:
-            credentials = json.load(f)
-    else:
-        # Prompt the user for their username, password, and homeserver
-        print("First time setup detected.")
-        print("(Note: You must have already created a bot user account separate from your personal Matrix account.)")
-        print("Please enter the following information:")
-        homeserver = input("Bot user's Matrix homeserver URL: ")
-        username = input("Bot user's Matrix username: ")
-        password = input("Bot user's Matrix password: ")
+    try:
+        # Check if credentials.json exists
+        if os.path.isfile("credentials.json"):
+            # Load existing credentials
+            with open("credentials.json", "r") as f:
+                credentials = json.load(f)
+            
+            # Configure the Matrix client with the existing credentials
+            config = AsyncClientConfig(encryption_enabled=False)
+            matrix_client = AsyncClient(
+                credentials["homeserver"], 
+                credentials["user_id"], 
+                config=config, 
+                ssl=ssl_context
+            )
+            matrix_client.restore_login(
+                user_id=credentials["user_id"],
+                device_id=credentials["device_id"],
+                access_token=credentials["access_token"]
+            )
+        else:
+            # Call login_and_save without parameters
+            matrix_client, credentials = await login_and_save()
 
+            if matrix_client is None:
+                print("Could not log in with the provided credentials.")
+                return  # Exit the function if login failed
 
-        # Call the login_and_save function and await its response
-        matrix_client, new_credentials = await login_and_save(username, password, homeserver)
-        
-        if matrix_client is None:
-            print("Could not log in with the provided credentials.")
-            return  # Exit the function if login failed
-        credentials = new_credentials  # Update the global credentials with the new ones
+        # Register the message callback with bot_user_id
+        matrix_client.add_event_callback(
+            on_room_message, 
+            (RoomMessageText, RoomMessageNotice)
+        )
 
-    # Configure the Matrix client
-    config = AsyncClientConfig(encryption_enabled=False)
-    matrix_client = AsyncClient(
-        credentials["homeserver"], credentials["user_id"], config=config, ssl=ssl_context
-    )
-    matrix_client.restore_login(
-        user_id=credentials["user_id"],
-        device_id=credentials["device_id"],
-        access_token=credentials["access_token"]
-    )
+        # Get the rooms from the config
+        matrix_rooms: List[dict] = relay_config["matrix_rooms"]
 
-    # Register the message callback with bot_user_id
-    matrix_client.add_event_callback(
-        on_room_message, 
-        (RoomMessageText, RoomMessageNotice)
-    )
+        # Join the rooms specified in the config.yaml
+        for room in matrix_rooms:
+            await join_matrix_room(matrix_client, room["id"])
 
-    # Get the rooms from the config
-    matrix_rooms: List[dict] = relay_config["matrix_rooms"]
+        # Register the Meshtastic message callback
+        logger.info("Listening for inbound radio messages ...")
+        pub.subscribe(
+            on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
+        )
 
-    # Join the rooms specified in the config.yaml
-    for room in matrix_rooms:
-        await join_matrix_room(matrix_client, room["id"])
-
-    # Register the Meshtastic message callback
-    logger.info("Listening for inbound radio messages ...")
-    pub.subscribe(
-        on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
-    )
-
-    # Start the Matrix client
-    while True:
-        try:
+        # Start the Matrix client
+        while True:
             # Update longname & shortname
             update_longnames()
             update_shortnames()
@@ -459,9 +469,9 @@ async def main():
             logger.info("Syncing with Matrix server...")
             await matrix_client.sync_forever(timeout=30000)
             logger.info("Sync completed.")
-        except Exception as e:
-            logger.error(f"Error syncing with Matrix server: {e}")
+            await asyncio.sleep(60)  # Update longnames every 60 seconds
 
-        await asyncio.sleep(60)  # Update longnames every 60 seconds
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
 
 asyncio.run(main())

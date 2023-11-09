@@ -95,14 +95,24 @@ Example output:
 ```
 
 $ python main.py
-INFO:meshtastic.matrix.relay:Starting Meshtastic <==> Matrix Relay...
-INFO:meshtastic.matrix.relay:Connecting to radio at meshtastic.local ...
-INFO:meshtastic.matrix.relay:Connected to radio at meshtastic.local.
-INFO:meshtastic.matrix.relay:Listening for inbound radio messages ...
-INFO:meshtastic.matrix.relay:Listening for inbound matrix messages ...
-INFO:meshtastic.matrix.relay:Processing matrix message from @bob:matrix.org: Hi Alice!
-INFO:meshtastic.matrix.relay:Sending radio message from Bob to radio broadcast
-INFO:meshtastic.matrix.relay:Processing inbound radio message from !613501e4 on channel 0
-INFO:meshtastic.matrix.relay:Relaying Meshtastic message from Alice to Matrix: [Alice/VeryCoolMeshnet]: Hey Bob!
-INFO:meshtastic.matrix.relay:Sent inbound radio message to matrix room: !someroomid:example.matrix.org
+2023-11-09 20:47:36 INFO:M<>M Relay:Connecting to radio using serial port /dev/ttyACM0 ...
+First time setup detected.
+Matrix homeserver URL (e.g., server.com or https://server.com): matrix.org
+Matrix username: matrixmeshbot
+Matrix password: 
+Login successful. Credentials saved.
+2023-11-09 20:47:56 INFO:M<>M Relay:Joined room '!ZkxaEBvVepwZDnwKCB:scamdemic.wtf' successfully
+2023-11-09 20:47:56 INFO:M<>M Relay:Joined room '!bUORrwSbVWHqESbgQf:scamdemic.wtf' successfully
+2023-11-09 20:47:57 INFO:M<>M Relay:Joined room '!NrCTURbZDMWKMrTpFH:matrix.org' successfully
+2023-11-09 20:47:57 INFO:M<>M Relay:Joined room '!phZxXpkkANBjLFBWUB:scamdemic.wtf' successfully
+2023-11-09 20:47:57 INFO:M<>M Relay:Listening for inbound radio messages ...
+2023-11-09 20:47:57 INFO:M<>M Relay:Syncing with Matrix server...
+2023-11-09 20:48:03 INFO:M<>M Relay:Processing matrix message from @bob:matrix.org: Hi Alice!
+2023-11-09 20:48:03 INFO:M<>M Relay:Sending radio message from Bob to radio broadcast
+2023-11-09 20:48:49 INFO:M<>M Relay:Processing inbound radio message from !613501e4 on channel 0
+2023-11-09 20:48:49 INFO:M<>M Relay:Relaying Meshtastic message from Alice to Matrix: [Alice/VeryCoolMeshnet]: Hey Bob!
+2023-11-09 20:48:49 INFO:M<>M Relay:Sent inbound radio message to matrix room: !someroomid:example.matrix.org
 ```
+
+Session details are then saved to `credentials.json` for future use.
+`{"user_id": "@matrixmeshbot:matrix.org", "device_id": "THTNYIVVLX", "access_token": "syt_xxxxx, "homeserver": "https://matrix.org"}``

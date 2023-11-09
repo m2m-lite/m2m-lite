@@ -10,6 +10,8 @@ import sqlite3
 import yaml
 import certifi
 import ssl
+import os
+import json
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
 from nio import (
@@ -77,6 +79,24 @@ def initialize_database():
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS shortnames (meshtastic_id TEXT PRIMARY KEY, shortname TEXT)")
         conn.commit()
+
+async def login_and_save(username, password, homeserver):
+    client = AsyncClient(homeserver, username)
+    response = await client.login(password)
+    if isinstance(response, LoginResponse):
+        credentials = {
+            "user_id": response.user_id,
+            "device_id": response.device_id,
+            "access_token": response.access_token,
+            "homeserver": homeserver
+        }
+        with open("credentials.json", "w") as f:
+            json.dump(credentials, f)
+        print("Login successful. Credentials saved.")
+        return client, credentials
+    else:
+        print("Login failed. Please check your username/password and try again.")
+        return None, None
 
 
 # Get the longname for a given Meshtastic ID
@@ -185,10 +205,7 @@ else:
 
 matrix_client = None
 
-# Matrix configuration
-matrix_homeserver = relay_config["matrix"]["homeserver"]
-matrix_access_token = relay_config["matrix"]["access_token"]
-bot_user_id = relay_config["matrix"]["bot_user_id"]
+# Get the rooms from the config
 matrix_rooms: List[dict] = relay_config["matrix_rooms"]
 
 def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
@@ -370,20 +387,37 @@ async def main():
     # Create SSL context using certifi's certificates
     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-    # Initialize the Matrix client with custom SSL context
-    config = AsyncClientConfig(encryption_enabled=False)
-    matrix_client = AsyncClient(
-        matrix_homeserver, bot_user_id, config=config, ssl=ssl_context
-    )
-    matrix_client.access_token = matrix_access_token
+    credentials = None
+    matrix_rooms: List[dict] = relay_config["matrix_rooms"]  # This should be at the top of your main function if you keep using config.yaml for rooms
 
-    logger.info("Connecting to Matrix server...")
-    try:
-        login_response = await matrix_client.login(matrix_access_token)
-        logger.info(f"Login response: {login_response}")
-    except Exception as e:
-        logger.error(f"Error connecting to Matrix server: {e}")
-        return
+    # Check if credentials.json exists
+    if not os.path.isfile("credentials.json"):
+        # Prompt the user for their username, password, and homeserver
+        print("First time setup detected.")
+        username = input("Please enter your Matrix username: ")
+        password = input("Please enter your Matrix password: ")
+        homeserver = input("Please enter your Matrix homeserver URL: ")
+
+        # Call the login_and_save function and await its response
+        matrix_client, credentials = await login_and_save(username, password, homeserver)
+        
+        if matrix_client is None:
+            print("Could not log in with the provided credentials.")
+            return  # Exit the function or add logic to retry
+    else:
+        # Load existing credentials
+        with open("credentials.json", "r") as f:
+            credentials = json.load(f)
+        # Initialize the Matrix client with custom SSL context
+        config = AsyncClientConfig(encryption_enabled=False)
+        matrix_client = AsyncClient(
+            credentials["homeserver"], credentials["user_id"], config=config, ssl=ssl_context
+        )
+        matrix_client.restore_login(
+            user_id=credentials["user_id"],
+            device_id=credentials["device_id"],
+            access_token=credentials["access_token"]
+        )
 
     # Join the rooms specified in the config.yaml
     for room in matrix_rooms:

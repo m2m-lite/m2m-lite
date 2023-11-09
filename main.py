@@ -84,14 +84,18 @@ def initialize_database():
         conn.commit()
 
 async def login_and_save():
+    
+    global credentials  # Declare credentials as global to modify the global instance
 
     # Prompt the user for their username, password, and homeserver
     print("First time setup detected.")
     homeserver = input("Matrix homeserver URL (e.g., server.com or https://server.com): ")
     username = input("Matrix username: ")
 
-    # Prepend https:// to the homeserver URL if not present
-    homeserver = f"https://{homeserver}" if not homeserver.startswith("http://") and not homeserver.startswith("https://") else homeserver
+    # Ensure that the homeserver URL is well-formed
+    if not homeserver.startswith("http://") and not homeserver.startswith("https://"):
+        homeserver = "https://" + homeserver
+    homeserver = homeserver.rstrip('/')  # Remove trailing slash if present
     
     # Format username to include the full user ID if not provided
     username = f"@{username}" if not username.startswith("@") else username

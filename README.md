@@ -114,5 +114,7 @@ Login successful. Credentials saved.
 2023-11-09 20:48:49 INFO:M<>M Relay:Sent inbound radio message to matrix room: !someroomid:example.matrix.org
 ```
 
-Session details are then saved to `credentials.json` for future use.
-`{"user_id": "@matrixmeshbot:matrix.org", "device_id": "THTNYIVVLX", "access_token": "syt_xxxxx, "homeserver": "https://matrix.org"}``
+
+
+After the first login, session details are then saved to `credentials.json` for future use.
+`{"user_id": "@matrixmeshbot:matrix.org", "device_id": "THTNYIVVLX", "access_token": "syt_xxxxx, "homeserver": "https://matrix.org"}`

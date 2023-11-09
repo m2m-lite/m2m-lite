@@ -101,17 +101,14 @@ Matrix homeserver URL (e.g., server.com or https://server.com): matrix.org
 Matrix username: matrixmeshbot
 Matrix password: 
 Login successful. Credentials saved.
-2023-11-09 20:47:56 INFO:M<>M Relay:Joined room '!ZkxaEBvVepwZDnwKCB:scamdemic.wtf' successfully
-2023-11-09 20:47:56 INFO:M<>M Relay:Joined room '!bUORrwSbVWHqESbgQf:scamdemic.wtf' successfully
-2023-11-09 20:47:57 INFO:M<>M Relay:Joined room '!NrCTURbZDMWKMrTpFH:matrix.org' successfully
-2023-11-09 20:47:57 INFO:M<>M Relay:Joined room '!phZxXpkkANBjLFBWUB:scamdemic.wtf' successfully
+2023-11-09 20:47:56 INFO:M<>M Relay:Joined room '#meshtastic-matrix-relay:matrix.org' successfully
 2023-11-09 20:47:57 INFO:M<>M Relay:Listening for inbound radio messages ...
 2023-11-09 20:47:57 INFO:M<>M Relay:Syncing with Matrix server...
 2023-11-09 20:48:03 INFO:M<>M Relay:Processing matrix message from @bob:matrix.org: Hi Alice!
 2023-11-09 20:48:03 INFO:M<>M Relay:Sending radio message from Bob to radio broadcast
 2023-11-09 20:48:49 INFO:M<>M Relay:Processing inbound radio message from !613501e4 on channel 0
 2023-11-09 20:48:49 INFO:M<>M Relay:Relaying Meshtastic message from Alice to Matrix: [Alice/VeryCoolMeshnet]: Hey Bob!
-2023-11-09 20:48:49 INFO:M<>M Relay:Sent inbound radio message to matrix room: !someroomid:example.matrix.org
+2023-11-09 20:48:49 INFO:M<>M Relay:Sent inbound radio message to matrix room: !NrCTURbZDMWKMrTpFH:matrix.org
 ```
 
 

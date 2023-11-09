@@ -116,5 +116,9 @@ Login successful. Credentials saved.
 
 
 
-After the first login, session details are then saved to `credentials.json` for future use.
-`{"user_id": "@matrixmeshbot:matrix.org", "device_id": "THTNYIVVLX", "access_token": "syt_xxxxx, "homeserver": "https://matrix.org"}`
+After the first login, session details are then saved to credentials.json for future use.
+
+*credentials.json*
+```
+{"user_id": "@matrixmeshbot:matrix.org", "device_id": "THTNYIVVLX", "access_token": "syt_xxxxx, "homeserver": "https://matrix.org"}
+```

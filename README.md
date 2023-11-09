@@ -16,6 +16,7 @@ https://github.com/geoffwhittington/meshtastic-matrix-relay
 - Configurable through a simple YAML file
 - Supports mapping multiple rooms and channels 1:1
 - **New:** Now uses Meshtastic shortnames when relaying messages from remote meshnets
+- **New:** Refactored session management to pave the way for Matrix E2EE support
 
 ## Custom Keys in Matrix Messages
 
@@ -62,11 +63,6 @@ pip install -r requirements.txt
 Create a `config.yaml` in the project directory with the appropriate values. A sample configuration is provided below:
 
 ```yaml
-matrix:
-  homeserver: "https://example.matrix.org"
-  access_token: "reaalllllyloooooongsecretttttcodeeeeeeforrrrbot"
-  bot_user_id: "@botuser:example.matrix.org"
-
 matrix_rooms:  # Needs at least 1 room & channel, but supports all Meshtastic channels
   - id: "!someroomid:example.matrix.org"
     meshtastic_channel: 0

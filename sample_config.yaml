@@ -1,8 +1,3 @@
-matrix:
-  homeserver: "https://example.matrix.org"
-  access_token: "reaalllllyloooooongsecretttttcodeeeeeeforrrrbot"
-  bot_user_id: "@botuser:example.matrix.org"
-
 matrix_rooms:  # Needs at least 1 room & channel, but supports all Meshtastic channels
   - id: "!someroomid:example.matrix.org"
     meshtastic_channel: 0

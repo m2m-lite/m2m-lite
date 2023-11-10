@@ -37,5 +37,5 @@ jobs:
           file: M2M-Lite_setup.exe
           asset_name: M2M-Lite_setup.exe
           tag: ${{ github.ref }}
-          overwrite: true
-          body: "Windows Installer"
+          #overwrite: true
+          #body: "Windows Installer"

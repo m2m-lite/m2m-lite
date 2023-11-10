@@ -128,27 +128,29 @@ async def login_and_save():
             if not os.path.isdir(store_path):
                 os.makedirs(store_path)
 
-            if isinstance(response, LoginResponse):
-                # ... existing code to set credentials ...
+            # Save credentials in the store_path directory
+            credentials_path = os.path.join(store_path, "credentials.json")
+            with open(credentials_path, "w") as f:
+                json.dump(credentials, f)
 
-                # Initialize the store with the user_id, device_id, and store_path
-                client.store = DefaultStore(credentials['user_id'], credentials['device_id'], store_path)
+            # Initialize the store with the user_id, device_id, and store_path
+            client.store = DefaultStore(credentials['user_id'], credentials['device_id'], store_path)
 
-                # Ensure the store_path directory exists
-                if not os.path.isdir(store_path):
-                    os.makedirs(store_path)
+            # Load or create an Olm account and sessions
+            if not client.store.load_account():
+                client.create_account()
+            client.load_store()
 
-                # Save credentials in the store_path directory
-                credentials_path = os.path.join(store_path, "credentials.json")
-                with open(credentials_path, "w") as f:
-                    json.dump(credentials, f)
+            # Save the Olm account and any sessions if they are not already saved
+            client.store.save_account(client.olm_account)
+            client.store.save_sessions(client.olm_account.sessions)
 
-                # Check if the olm_account is available and save it
-                if hasattr(client, 'olm_account'):
-                    client.store.save_account(client.olm_account)
+            # Finally, save the sync token if necessary
+            if client.should_upload_keys:
+                await client.keys_upload()
 
-                print("Login successful. Credentials and session saved.")
-                return client, credentials
+            print("Login successful. Credentials and session saved.")
+            return client, credentials
 
         else:
             print("Login failed. Please check your username/password and try again.")

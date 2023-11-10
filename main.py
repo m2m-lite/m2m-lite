@@ -30,6 +30,7 @@ from typing import List, Union
 #from config_editor import load_config
 
 credentials = None
+store_path = "matrix_store"
 
 class CustomFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, style="%", converter=None):
@@ -85,11 +86,11 @@ def initialize_database():
         conn.commit()
 
 async def login_and_save():
-    global credentials  # Declare credentials as global to modify the global instance
+    global credentials, store_path
 
     # Prompt the user for their username, password, and homeserver
     print("First time setup detected.")
-    homeserver = input("Matrix homeserver URL (e.g., server.com or https://server.com): ")
+    homeserver = input("Matrix homeserver URL (e.g., https://server.com): ")
     username = input("Matrix username: ")
 
     # Ensure that the homeserver URL is well-formed
@@ -122,18 +123,17 @@ async def login_and_save():
                 "homeserver": homeserver
             }
             
-            # Create a directory for storing the session if it doesn't exist
-            store_path = "matrix_store"
+            # Ensure the store_path directory exists
             if not os.path.isdir(store_path):
                 os.makedirs(store_path)
 
-            # Save credentials
-            with open("credentials.json", "w") as f:
+            # Save credentials in the store_path directory
+            credentials_path = os.path.join(store_path, "credentials.json")
+            with open(credentials_path, "w") as f:
                 json.dump(credentials, f)
             
-            # Save the session for later use
-            client.save_session(file_path=f"{store_path}/session")
-
+            # Inform about successful login and save session in store_path
+            client.save_session(file_path=os.path.join(store_path, "session"))
             print("Login successful. Credentials and session saved.")
             return client, credentials
         else:
@@ -424,9 +424,9 @@ async def main():
 
     try:
         # Check if credentials.json exists
-        if os.path.isfile("credentials.json"):
+        if os.path.isfile(os.path.join(store_path, "credentials.json")):
             # Load existing credentials
-            with open("credentials.json", "r") as f:
+            with open(os.path.join(store_path, "credentials.json"), "r") as f:
                 credentials = json.load(f)
 
             # Configure the Matrix client with the existing credentials
@@ -438,8 +438,6 @@ async def main():
                 ssl=ssl_context
             )
 
-            # Load the session from disk
-            matrix_client.load_session()
 
             # Restore the login session
             matrix_client.restore_login(

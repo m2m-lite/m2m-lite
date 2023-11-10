@@ -124,33 +124,38 @@ async def login_and_save():
                 "homeserver": homeserver
             }
 
-            # Initialize the store with a path to save encryption keys
-            client.store = DefaultStore(
-                user_id=response.user_id,
-                device_id=response.device_id,
-                store_path=store_path
-            )
-
             # Ensure the store_path directory exists
             if not os.path.isdir(store_path):
                 os.makedirs(store_path)
 
-            # Save credentials in the store_path directory
-            credentials_path = os.path.join(store_path, "credentials.json")
-            with open(credentials_path, "w") as f:
-                json.dump(credentials, f)
+            if isinstance(response, LoginResponse):
+                # ... existing code to set credentials ...
 
-            client.store.save()
+                # Initialize the store with the user_id, device_id, and store_path
+                client.store = DefaultStore(credentials['user_id'], credentials['device_id'], store_path)
 
-            print("Login successful. Credentials and store saved.")
-            return client, credentials
+                # Ensure the store_path directory exists
+                if not os.path.isdir(store_path):
+                    os.makedirs(store_path)
+
+                # Save credentials in the store_path directory
+                credentials_path = os.path.join(store_path, "credentials.json")
+                with open(credentials_path, "w") as f:
+                    json.dump(credentials, f)
+
+                # Check if the olm_account is available and save it
+                if hasattr(client, 'olm_account'):
+                    client.store.save_account(client.olm_account)
+
+                print("Login successful. Credentials and session saved.")
+                return client, credentials
+
         else:
             print("Login failed. Please check your username/password and try again.")
             return None, None
     except Exception as e:
         print(f"An error occurred during login: {e}")
         return None, None
-
 
 # Get the longname for a given Meshtastic ID
 def get_longname(meshtastic_id):

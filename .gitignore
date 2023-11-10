@@ -6,4 +6,4 @@ meshtastic.sqlite
 *.pyc 
 .niostore
 credentials.json
-./matrix_store
+./matrix_store/*

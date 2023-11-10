@@ -23,7 +23,7 @@ jobs:
           pip install pyinstaller
 
       - name: Build executable
-        run: pyinstaller --name=m2mlite.exe --onefile --console main.py
+        run: pyinstaller --name=m2mlite.exe --onefile --hidden-import=yaml --console main.py
 
       - name: Build installer
         uses: nadeemjazmawe/inno-setup-action-cli@v6.0.5

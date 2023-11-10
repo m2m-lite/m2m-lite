@@ -27,6 +27,7 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
+from nio.store import DefaultStore
 #from config_editor import load_config
 
 credentials = None
@@ -97,7 +98,7 @@ async def login_and_save():
     if not homeserver.startswith("http://") and not homeserver.startswith("https://"):
         homeserver = "https://" + homeserver
     homeserver = homeserver.rstrip('/')  # Remove trailing slash if present
-    
+
     # Format username to include the full user ID if not provided
     username = f"@{username}" if not username.startswith("@") else username
     username = f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
@@ -114,7 +115,7 @@ async def login_and_save():
 
     try:
         response = await client.login(password)
-        
+
         if isinstance(response, LoginResponse):
             credentials = {
                 "user_id": response.user_id,
@@ -122,7 +123,14 @@ async def login_and_save():
                 "access_token": response.access_token,
                 "homeserver": homeserver
             }
-            
+
+            # Initialize the store with a path to save encryption keys
+            client.store = DefaultStore(
+                user_id=response.user_id,
+                device_id=response.device_id,
+                store_path=store_path
+            )
+
             # Ensure the store_path directory exists
             if not os.path.isdir(store_path):
                 os.makedirs(store_path)
@@ -131,10 +139,10 @@ async def login_and_save():
             credentials_path = os.path.join(store_path, "credentials.json")
             with open(credentials_path, "w") as f:
                 json.dump(credentials, f)
-            
-            # Inform about successful login and save session in store_path
-            client.save_session(file_path=os.path.join(store_path, "session"))
-            print("Login successful. Credentials and session saved.")
+
+            client.store.save()
+
+            print("Login successful. Credentials and store saved.")
             return client, credentials
         else:
             print("Login failed. Please check your username/password and try again.")

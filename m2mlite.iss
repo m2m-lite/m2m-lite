@@ -26,7 +26,6 @@ Filename: "{app}\m2mlite.bat"; Description: "Launch M2M Lite"; Flags: nowait pos
 var
   TokenInfoLabel: TLabel;
   TokenInfoLink: TNewStaticText;
-  MatrixPage : TInputQueryWizardPage;
   OverwriteConfig: TInputOptionWizardPage;
   MatrixMeshtasticPage : TInputQueryWizardPage;
   MeshtasticPage : TInputQueryWizardPage;
@@ -48,46 +47,23 @@ begin
   OverwriteConfig := CreateInputOptionPage(wpWelcome,
     'Configure the relay', 'Create new configuration',
     '', False, False);
-  MatrixPage := CreateInputQueryPage(OverwriteConfig.ID, 
-      'Matrix Setup', 'Configure Matrix Settings',
-      'Enter the settings for your Matrix server.');
-  MeshtasticPage := CreateInputQueryPage(MatrixPage.ID, 
+
+  // Assuming OverwriteConfig is the first custom page, it should be the parent of MeshtasticPage
+  MeshtasticPage := CreateInputQueryPage(OverwriteConfig.ID, 
       'Meshtastic Setup', 'Configure Meshtastic Settings',
       'Enter the settings for connecting with your Meshtastic radio.');
+
+  // MeshtasticPage is now the parent of MatrixMeshtasticPage
   MatrixMeshtasticPage := CreateInputQueryPage(MeshtasticPage.ID, 
       'Matrix <> Meshtastic Setup', 'Configure Matrix <> Meshtastic Settings',
       'Connect a Matrix room with a Meshtastic radio channel.');
+
   OptionsPage := CreateInputOptionPage(MatrixMeshtasticPage.ID, 
-      'Additional Options', 'Provide additional optios',
+      'Additional Options', 'Provide additional options',
       'Set logging and broadcast options, you can keep the defaults.', False, False);
-  
+
   OverwriteConfig.Add('Generate configuration (overwrite any current config files)');
   OverwriteConfig.Values[0] := True;
-
-  MatrixPage.Add('Homeserver: (example: https://matrix.org)', False);
-  MatrixPage.Add('Bot User ID (example: @mybotuser:matrix.org)', False);
-  MatrixPage.Add('Access Token (example: syt_bWvzaGjvdD1_PwsXoZgGItImVxBIZbBK_1XZVW8)', False);
-
-  TokenInfoLabel := TLabel.Create(WizardForm);
-  TokenInfoLabel.Caption := 'For instructions on where to find your access token, visit:';
-  TokenInfoLabel.Parent := MatrixPage.Surface;
-  TokenInfoLabel.Left := 0;
-  TokenInfoLabel.Top := MatrixPage.Edits[2].Top + MatrixPage.Edits[2].Height + 8;
-
-  TokenInfoLink := TNewStaticText.Create(WizardForm);
-  TokenInfoLink.Caption := 'https://t2bot.io/docs/access_tokens/';
-  TokenInfoLink.Cursor := crHand;
-  TokenInfoLink.Font.Color := clBlue;
-  TokenInfoLink.Font.Style := [fsUnderline];
-  TokenInfoLink.OnClick := @TokenInfoLinkClick;
-  TokenInfoLink.Parent := MatrixPage.Surface;
-  TokenInfoLink.Left := TokenInfoLabel.Left;
-  TokenInfoLink.Top := TokenInfoLabel.Top + TokenInfoLabel.Height;
-
-
-  MatrixPage.Edits[0].Hint := 'https://example.matrix.org';
-  MatrixPage.Edits[1].Hint := '@botuser:example.matrix.org';
-  MatrixPage.Edits[2].Hint := 'reaalllllyloooooongsecretttttcodeeeeeeforrrrbot';
 
   MeshtasticPage.Add('Connection Type (network or serial)?', False);
   MeshtasticPage.Add('Serial Port (if serial):', False);
@@ -157,11 +133,7 @@ begin
         log_level := 'info';
     end;
 
-    config := 'matrix:' + #13#10 +
-              '  homeserver: "' + MatrixPage.Values[0] + '"' +  #13#10 +
-              '  bot_user_id: "' + MatrixPage.Values[1] + '"' + #13#10 +
-              '  access_token: "' + MatrixPage.Values[2] + '"' + #13#10 +
-              'matrix_rooms:' + #13#10 +
+    config := 'matrix_rooms:' + #13#10 +
               '  - id: "' + MatrixMeshtasticPage.Values[0] + '"' + #13#10 +
               '    meshtastic_channel: ' + MatrixMeshtasticPage.Values[1] + #13#10 +
               'meshtastic:' + #13#10 +

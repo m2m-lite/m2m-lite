@@ -21,6 +21,7 @@ from nio import (
     LoginResponse,
     MatrixRoom,
     RoomMessageText,
+    EncryptionError
     RoomMessageNotice,
 )
 from pubsub import pub
@@ -84,7 +85,6 @@ def initialize_database():
         conn.commit()
 
 async def login_and_save():
-    
     global credentials  # Declare credentials as global to modify the global instance
 
     # Prompt the user for their username, password, and homeserver
@@ -104,8 +104,14 @@ async def login_and_save():
     # Securely prompt for the password without echoing it
     password = getpass.getpass(prompt="Matrix password: ")
 
+    # Create SSL context using certifi's certificates
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+    # Configure the Matrix client
+    config = AsyncClientConfig(encryption_enabled=True)
+    client = AsyncClient(homeserver, username, config=config, ssl=ssl_context)
+
     try:
-        client = AsyncClient(homeserver, username)
         response = await client.login(password)
         
         if isinstance(response, LoginResponse):
@@ -115,9 +121,20 @@ async def login_and_save():
                 "access_token": response.access_token,
                 "homeserver": homeserver
             }
+            
+            # Create a directory for storing the session if it doesn't exist
+            store_path = "matrix_store"
+            if not os.path.isdir(store_path):
+                os.makedirs(store_path)
+
+            # Save credentials
             with open("credentials.json", "w") as f:
                 json.dump(credentials, f)
-            print("Login successful. Credentials saved.")
+            
+            # Save the session for later use
+            client.save_session(file_path=f"{store_path}/session")
+
+            print("Login successful. Credentials and session saved.")
             return client, credentials
         else:
             print("Login failed. Please check your username/password and try again.")
@@ -240,29 +257,37 @@ def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
 
 # Send message to the Matrix room
 async def matrix_relay(matrix_client, room_id, message, longname, shortname, meshnet_name):
+    room = matrix_client.rooms[room_id]
+    content = {
+        "msgtype": "m.text",
+        "body": message,
+        "meshtastic_longname": longname,
+        "meshtastic_shortname": shortname,
+        "meshtastic_meshnet": meshnet_name,
+    }
+
+    # Check if the room is encrypted
+    if room.encrypted:
+        # Encrypt the message
+        content = await matrix_client.encrypt(room_id, content)
+        message_type = "m.room.encrypted"
+    else:
+        message_type = "m.room.message"
+
     try:
-        content = {
-            "msgtype": "m.text",
-            "body": message,
-            "meshtastic_longname": longname,
-            "meshtastic_shortname": shortname,
-            "meshtastic_meshnet": meshnet_name,
-        }
         await asyncio.wait_for(
             matrix_client.room_send(
                 room_id=room_id,
-                message_type="m.room.message",
-                content=content,
+                message_type=message_type,
+                content=content
             ),
             timeout=0.5,
         )
-        logger.info(f"Sent inbound radio message to matrix room: {room_id}")
-
+        logger.info(f"Sent message to matrix room: {room_id}")
     except asyncio.TimeoutError:
         logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
-        logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
-
+        logger.error(f"Error sending message to matrix room {room_id}: {e}")
 
 # Callback for new messages from Meshtastic
 def on_meshtastic_message(packet, loop=None):
@@ -338,74 +363,54 @@ def truncate_message(text, max_bytes=227):
 
 
 # Callback for new messages in Matrix room
-async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]) -> None:
+# Callback for new messages in Matrix room
+async def on_room_message(room: MatrixRoom, event) -> None:
+    global credentials  # Use the global variable 'credentials'
 
-    global credentials  # Now we're using the global variable 'credentials'
+    # Skip processing if no credentials or if the message is from the bot itself
     if not credentials or event.sender == credentials['user_id']:
-        return  # Skip processing if we have no credentials or if the message is from the bot itself
+        return
 
-
-    bot_user_id = credentials['user_id'] if credentials else None
-
-    full_display_name = "Unknown user"
-    
-    if event.sender != credentials['user_id']:
+    # Continue processing if the message is a text message or an encrypted message
+    if isinstance(event, RoomMessageText) or event.type == "m.room.encrypted":
         message_timestamp = event.server_timestamp
-
-        if message_timestamp > bot_start_time:
-            text = event.body.strip()
-
-            longname = event.source["content"].get("meshtastic_longname")
-            shortname = event.source["content"].get("meshtastic_shortname", None)
-            meshnet_name = event.source["content"].get("meshtastic_meshnet")
-            local_meshnet_name = relay_config["meshtastic"]["meshnet_name"]
-
-            if longname and meshnet_name:
-                full_display_name = f"{longname}/{meshnet_name}"
-                if meshnet_name != local_meshnet_name:
-                    logger.info(f"Processing message from remote meshnet: {text}")
-                    short_meshnet_name = meshnet_name[:4]
-
-                    # If shortname is None, truncate the longname to 3 characters
-                    if shortname is None:
-                        shortname = longname[:3]
-                    prefix = f"{shortname}/{short_meshnet_name}: "
-                    text = re.sub(rf"^\[{full_display_name}\]: ", "", text)  # Remove the original prefix from the text
-                    text = truncate_message(text)
-                    full_message = f"{prefix}{text}"
-                else:
-                    # This is a message from a local user, it should be ignored no log is needed
+        if message_timestamp > bot_start_time:  # Filter out old messages
+            # Decrypt the message if it's encrypted
+            if event.type == "m.room.encrypted":
+                try:
+                    event = await matrix_client.decrypt_event(event)
+                    # Update the event to RoomMessageText if decryption was successful
+                    event.__class__ = RoomMessageText
+                except EncryptionError as error:
+                    logger.error(f"Failed to decrypt event: {error}")
+                    # Do not proceed if decryption fails
                     return
-            else:
-                display_name_response = await matrix_client.get_displayname(
-                    event.sender
-                )
-                full_display_name = display_name_response.displayname or event.sender
-                short_display_name = full_display_name[:5]
-                prefix = f"{short_display_name}[M]: "
-                logger.info(f"Processing matrix message from [{full_display_name}]: {text}")
-                text = truncate_message(text)
-                full_message = f"{prefix}{text}"
 
-            room_config = None
-            for config in matrix_rooms:
-                if config["id"] == room.room_id:
-                    room_config = config
-                    break
+            text = event.body.strip()
+            longname = event.source["content"].get("meshtastic_longname", "Unknown")
+            shortname = event.source["content"].get("meshtastic_shortname", "Unknown")
+            meshnet_name = event.source["content"].get("meshtastic_meshnet", "Unknown")
 
+            # Prepare the message to be sent to the Meshtastic device
+            full_display_name = f"{longname}/{meshnet_name}"
+            short_meshnet_name = meshnet_name[:4]
+            prefix = f"{shortname}/{short_meshnet_name}: " if shortname else ""
+            text = re.sub(rf"^\[{full_display_name}\]: ", "", text)  # Remove the original prefix
+            text = truncate_message(text)
+            full_message = f"{prefix}{text}"
+
+            # Find the corresponding Meshtastic channel configuration
+            room_config = next((config for config in matrix_rooms if config["id"] == room.room_id), None)
             if room_config:
                 meshtastic_channel = room_config["meshtastic_channel"]
 
+                # If broadcasting is enabled, send the message to the Meshtastic device
                 if relay_config["meshtastic"]["broadcast_enabled"]:
-                    logger.info(
-                        f"Sending radio message from {full_display_name} to radio broadcast"
-                    )
-                    meshtastic_interface.sendText(text=full_message, channelIndex=meshtastic_channel
-                    )
+                    logger.info(f"Sending message from {full_display_name} to Meshtastic channel {meshtastic_channel}")
+                    # The Meshtastic API call to send the text message
+                    meshtastic_interface.sendText(text=full_message, channelIndex=meshtastic_channel)
                 else:
-                    logger.debug(
-                        f"Broadcast not supported: Message from {full_display_name} dropped."
-                    )
+                    logger.debug(f"Broadcast not enabled: Message from {full_display_name} dropped.")
 
 
 async def main():
@@ -423,32 +428,45 @@ async def main():
             # Load existing credentials
             with open("credentials.json", "r") as f:
                 credentials = json.load(f)
-            
+
             # Configure the Matrix client with the existing credentials
-            config = AsyncClientConfig(encryption_enabled=False)
+            config = AsyncClientConfig(encryption_enabled=True)
             matrix_client = AsyncClient(
-                credentials["homeserver"], 
-                credentials["user_id"], 
-                config=config, 
+                credentials["homeserver"],
+                credentials["user_id"],
+                config=config,
                 ssl=ssl_context
             )
+
+            # Load the session from disk
+            matrix_client.load_session()
+
+            # Restore the login session
             matrix_client.restore_login(
                 user_id=credentials["user_id"],
                 device_id=credentials["device_id"],
                 access_token=credentials["access_token"]
             )
+
+            # Check for necessary key uploads
+            if matrix_client.should_upload_keys:
+                await matrix_client.keys_upload()
+
         else:
-            # Call login_and_save without parameters
+            # Perform first-time login and save
             matrix_client, credentials = await login_and_save()
 
             if matrix_client is None:
                 print("Could not log in with the provided credentials.")
                 return  # Exit the function if login failed
 
+            # Save the session after the first login
+            matrix_client.save_session()
+
         # Register the message callback with bot_user_id
         matrix_client.add_event_callback(
-            on_room_message, 
-            (RoomMessageText, RoomMessageNotice)
+            on_room_message,
+            RoomMessageText
         )
 
         # Get the rooms from the config
@@ -464,14 +482,14 @@ async def main():
             on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
         )
 
-        # Start the Matrix client
+        # Start the Matrix client and sync with full state
         while True:
             # Update longname & shortname
             update_longnames()
             update_shortnames()
 
             logger.info("Syncing with Matrix server...")
-            await matrix_client.sync_forever(timeout=30000)
+            await matrix_client.sync_forever(timeout=30000, full_state=True)
             logger.info("Sync completed.")
             await asyncio.sleep(60)  # Update longnames every 60 seconds
 

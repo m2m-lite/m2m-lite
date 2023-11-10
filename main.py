@@ -13,6 +13,7 @@ import ssl
 import os
 import getpass
 import json
+import sys
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
 from nio import (
@@ -84,7 +85,6 @@ def initialize_database():
         conn.commit()
 
 async def login_and_save():
-    
     global credentials  # Declare credentials as global to modify the global instance
 
     # Prompt the user for their username, password, and homeserver
@@ -109,21 +109,27 @@ async def login_and_save():
         response = await client.login(password)
         
         if isinstance(response, LoginResponse):
+            # Determine the base path to store credentials.json for the Windows executable
+            base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            credentials_path = os.path.join(base_path, 'credentials.json')
+
             credentials = {
                 "user_id": response.user_id,
                 "device_id": response.device_id,
                 "access_token": response.access_token,
                 "homeserver": homeserver
             }
-            with open("credentials.json", "w") as f:
+            
+            # Write credentials to credentials.json
+            with open(credentials_path, "w") as f:
                 json.dump(credentials, f)
-            print("Login successful. Credentials saved.")
+            logger.info("Login successful. Credentials saved.")
             return client, credentials
         else:
-            print("Login failed. Please check your username/password and try again.")
+            logger.error("Login failed. Please check your username/password and try again.")
             return None, None
     except Exception as e:
-        print(f"An error occurred during login: {e}")
+        logger.exception("An error occurred during login: ")
         return None, None
 
 

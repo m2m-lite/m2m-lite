@@ -458,9 +458,6 @@ async def main():
                 print("Could not log in with the provided credentials.")
                 return  # Exit the function if login failed
 
-            # Save the session after the first login
-            matrix_client.save_session()
-
         # Register the message callback with bot_user_id
         matrix_client.add_event_callback(
             on_room_message,

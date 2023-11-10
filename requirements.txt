@@ -1,6 +1,6 @@
 meshtastic
 matrix-nio==0.20.2
-certifi
-aiohttp
-pubsub
-PyYAML
+certifi==2023.7.22
+aiohttp==3.8.6
+pubsub==0.1.2
+PyYAML==6.0.1

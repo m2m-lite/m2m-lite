@@ -21,7 +21,7 @@ from nio import (
     LoginResponse,
     MatrixRoom,
     RoomMessageText,
-    EncryptionError
+    EncryptionError,
     RoomMessageNotice,
 )
 from pubsub import pub

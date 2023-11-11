@@ -18,6 +18,7 @@ import meshtastic.serial_interface
 from nio import (
     AsyncClient,
     AsyncClientConfig,
+    JoinResponse,
     LoginResponse,
     MatrixRoom,
     RoomMessageText,
@@ -185,32 +186,41 @@ def update_shortnames():
                 shortname = user.get("shortName", "N/A")
                 save_shortname(meshtastic_id, shortname)
 
+# Function to export and save the encryption keys securely
+async def save_keys(client):
+    # Export keys
+    exported_keys = await client.keys_export("passphrase")  # Use a secure passphrase
+    # Save them securely, possibly encrypted with another layer of security
+    with open("keys_backup.json", "w") as f:
+        json.dump(exported_keys, f)
+
 
 async def join_matrix_room(matrix_client, room_id_or_alias: str) -> None:
-    """Join a Matrix room by its ID or alias."""
     try:
+        # If it's an alias, resolve to a room ID
         if room_id_or_alias.startswith("#"):
             response = await matrix_client.room_resolve_alias(room_id_or_alias)
             if not response.room_id:
-                logger.error(
-                    f"Failed to resolve room alias '{room_id_or_alias}': {response.message}"
-                )
+                logger.error(f"Failed to resolve room alias '{room_id_or_alias}': {response.message}")
                 return
             room_id = response.room_id
         else:
             room_id = room_id_or_alias
 
-        if room_id not in matrix_client.rooms:
-            response = await matrix_client.join(room_id)
-            if response and hasattr(response, "room_id"):
-                logger.info(f"Joined room '{room_id_or_alias}' successfully")
-                update_matrix_room_id(room_id_or_alias, room_id)  # Update the room ID in matrix_rooms
-            else:
-                logger.error(
-                    f"Failed to join room '{room_id_or_alias}': {response.message}"
-                )
+        # Check if already in the room
+        if room_id in matrix_client.rooms:
+            logger.debug(f"Already joined in room '{room_id_or_alias}'")
+            return
+
+        # Attempt to join the room
+        response = await matrix_client.join(room_id)
+        if isinstance(response, JoinResponse):
+            logger.info(f"Joined room '{room_id_or_alias}' successfully")
+            # Perform any updates needed with the new room ID
+            update_matrix_room_id(room_id_or_alias, response.room_id)
         else:
-            logger.debug(f"Bot is already in room '{room_id_or_alias}'")
+            logger.error(f"Failed to join room '{room_id_or_alias}': {response.message}")
+
     except Exception as e:
         logger.error(f"Error joining room '{room_id_or_alias}': {e}")
 
@@ -248,20 +258,26 @@ async def matrix_relay(matrix_client, room_id, message, longname, shortname, mes
             "meshtastic_shortname": shortname,
             "meshtastic_meshnet": meshnet_name,
         }
+        # Before sending, check if the room is encrypted
+        room = matrix_client.rooms.get(room_id)
+        if room and room.encrypted:
+            logger.info(f"Sending encrypted message to room: {room_id}")
+        
+        # The room_send method will automatically encrypt the message if the room is encrypted
         await asyncio.wait_for(
             matrix_client.room_send(
                 room_id=room_id,
                 message_type="m.room.message",
                 content=content,
+                ignore_unverified_devices=True,
             ),
             timeout=0.5,
         )
-        logger.info(f"Sent inbound radio message to matrix room: {room_id}")
-
+        logger.info(f"Sent message to matrix room: {room_id}")
     except asyncio.TimeoutError:
         logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
-        logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
+        logger.error(f"Error sending message to matrix room {room_id}: {e}")
 
 
 # Callback for new messages from Meshtastic
@@ -425,7 +441,7 @@ async def main():
                 credentials = json.load(f)
             
             # Configure the Matrix client with the existing credentials
-            config = AsyncClientConfig(encryption_enabled=False)
+            config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
             matrix_client = AsyncClient(
                 credentials["homeserver"], 
                 credentials["user_id"], 

@@ -61,6 +61,10 @@ with open("config.yaml", "r") as f:
 logger = logging.getLogger(name="M<>M Relay")
 log_level = getattr(logging, relay_config["logging"]["level"].upper())
 
+# Additional logging configuration for nio library
+#nio_logger = logging.getLogger("nio")  # Get the logger instance for 'nio'
+#nio_logger.setLevel(logging.DEBUG)  # Set the log level to DEBUG to capture all messages
+
 
 logger.setLevel(log_level)
 logger.propagate = False  # Add this line to prevent double logging
@@ -448,6 +452,8 @@ async def main():
                 device_id=credentials["device_id"],
                 access_token=credentials["access_token"]
             )
+
+            matrix_client.load_store()
 
         else:
             # New login, save the credentials and then initialize the store

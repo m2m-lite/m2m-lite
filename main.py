@@ -20,10 +20,12 @@ from nio import (
     AsyncClientConfig,
     LoginResponse,
     MatrixRoom,
+    MegolmEvent,
     RoomMessageText,
     EncryptionError,
     RoomMessageNotice,
 )
+from olm import Account
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
@@ -60,9 +62,10 @@ with open("config.yaml", "r") as f:
 
 # Configure logging
 logger = logging.getLogger(name="M<>M Relay")
+#nio_logger = logging.getLogger("nio")  # Get the logger for 'nio'
+#nio_logger.setLevel(logging.DEBUG)  # Set nio's logger to DEBUG
+
 log_level = getattr(logging, relay_config["logging"]["level"].upper())
-
-
 logger.setLevel(log_level)
 logger.propagate = False  # Add this line to prevent double logging
 
@@ -89,28 +92,30 @@ def initialize_database():
 async def login_and_save():
     global credentials, store_path
 
+    # Check if the security-key.txt exists and set the secure_backup_key if it does
+    security_key_path = "security-key.txt"
+    secure_backup_key = None
+
+    if os.path.isfile(security_key_path):
+        with open(security_key_path, "r") as key_file:
+            secure_backup_key = key_file.read().strip()
+            print("Security key loaded successfully.")
+
     # Prompt the user for their username, password, and homeserver
     print("First time setup detected.")
     homeserver = input("Matrix homeserver URL (e.g., https://server.com): ")
     username = input("Matrix username: ")
-
-    # Ensure that the homeserver URL is well-formed
-    if not homeserver.startswith("http://") and not homeserver.startswith("https://"):
-        homeserver = "https://" + homeserver
-    homeserver = homeserver.rstrip('/')  # Remove trailing slash if present
-
-    # Format username to include the full user ID if not provided
-    username = f"@{username}" if not username.startswith("@") else username
-    username = f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
-
-    # Securely prompt for the password without echoing it
     password = getpass.getpass(prompt="Matrix password: ")
 
     # Create SSL context using certifi's certificates
     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-    # Configure the Matrix client
-    config = AsyncClientConfig(encryption_enabled=True)
+    # Configure the Matrix client with encryption enabled and the security key if present
+    config = AsyncClientConfig(
+        encryption_enabled=True,
+        store_sync_tokens=True,
+        secure_backup_key=secure_backup_key
+    )
     client = AsyncClient(homeserver, username, config=config, ssl=ssl_context)
 
     try:
@@ -138,7 +143,11 @@ async def login_and_save():
 
             # Load or create an Olm account and sessions
             if not client.store.load_account():
+                logger.debug("No existing Olm account, creating a new one.")
                 client.create_account()
+            else:
+                logger.debug("Loaded existing Olm account from the store.")
+            
             client.load_store()
 
             # Save the Olm account and any sessions if they are not already saved
@@ -271,6 +280,7 @@ def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
 
 
 # Send message to the Matrix room
+# Send message to the Matrix room
 async def matrix_relay(matrix_client, room_id, message, longname, shortname, meshnet_name):
     room = matrix_client.rooms[room_id]
     content = {
@@ -280,25 +290,36 @@ async def matrix_relay(matrix_client, room_id, message, longname, shortname, mes
         "meshtastic_shortname": shortname,
         "meshtastic_meshnet": meshnet_name,
     }
+    
+    logger.debug(f"Preparing to send message to room: {room_id}")
+    logger.debug(f"Message content: {content}")
 
     # Check if the room is encrypted
     if room.encrypted:
-        # Encrypt the message
-        content = await matrix_client.encrypt(room_id, content)
-        message_type = "m.room.encrypted"
+        logger.debug(f"Room {room_id} is encrypted. Encrypting message.")
+        try:
+            content = await matrix_client.encrypt(room_id, content)
+            message_type = "m.room.encrypted"
+            logger.debug(f"Encrypted content: {content}")
+        except Exception as e:
+            logger.error(f"Failed to encrypt message for room {room_id}: {e}")
+            return
     else:
         message_type = "m.room.message"
 
     try:
-        await asyncio.wait_for(
+        logger.debug(f"Sending message to room: {room_id}")
+        response = await asyncio.wait_for(
             matrix_client.room_send(
                 room_id=room_id,
                 message_type=message_type,
-                content=content
+                content=content,
+                ignore_unverified_devices=True
             ),
-            timeout=0.5,
+            timeout=10,  # Increased timeout to 10 seconds
         )
         logger.info(f"Sent message to matrix room: {room_id}")
+        logger.debug(f"Server response: {response}")
     except asyncio.TimeoutError:
         logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
@@ -449,10 +470,10 @@ async def main():
             matrix_client = AsyncClient(
                 credentials["homeserver"],
                 credentials["user_id"],
+                device_id=credentials["device_id"],
                 config=config,
-                ssl=ssl_context
+                store_path=store_path
             )
-
 
             # Restore the login session
             matrix_client.restore_login(
@@ -460,6 +481,18 @@ async def main():
                 device_id=credentials["device_id"],
                 access_token=credentials["access_token"]
             )
+
+            # Load the store
+            matrix_client.load_store()
+
+            # Load or create an Olm account and sessions
+            if not matrix_client.store.load_account():
+                logging.debug("No existing Olm account, creating a new one.")
+                matrix_client.olm_account = Account()  # Create a new Olm account
+                matrix_client.store.save_account(matrix_client.olm_account)
+            else:
+                logging.debug("Loaded existing Olm account from the store.")
+                matrix_client.olm_account = matrix_client.store.load_account()
 
             # Check for necessary key uploads
             if matrix_client.should_upload_keys:
@@ -470,7 +503,7 @@ async def main():
             matrix_client, credentials = await login_and_save()
 
             if matrix_client is None:
-                print("Could not log in with the provided credentials.")
+                logging.error("Could not log in with the provided credentials.")
                 return  # Exit the function if login failed
 
         # Register the message callback with bot_user_id
@@ -480,14 +513,14 @@ async def main():
         )
 
         # Get the rooms from the config
-        matrix_rooms: List[dict] = relay_config["matrix_rooms"]
+        matrix_rooms = relay_config["matrix_rooms"]
 
         # Join the rooms specified in the config.yaml
         for room in matrix_rooms:
             await join_matrix_room(matrix_client, room["id"])
 
         # Register the Meshtastic message callback
-        logger.info("Listening for inbound radio messages ...")
+        logging.info("Listening for inbound radio messages ...")
         pub.subscribe(
             on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
         )
@@ -498,12 +531,12 @@ async def main():
             update_longnames()
             update_shortnames()
 
-            logger.info("Syncing with Matrix server...")
+            logging.info("Syncing with Matrix server...")
             await matrix_client.sync_forever(timeout=30000, full_state=True)
-            logger.info("Sync completed.")
+            logging.info("Sync completed.")
             await asyncio.sleep(60)  # Update longnames every 60 seconds
 
     except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        logging.error(f"An unexpected error occurred: {e}")
 
 asyncio.run(main())

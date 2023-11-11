@@ -7,3 +7,4 @@ meshtastic.sqlite
 .niostore
 credentials.json
 ./matrix_store/*
+security-key.txt

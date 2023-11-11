@@ -27,7 +27,6 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
-#from config_editor import load_config
 
 credentials = None
 

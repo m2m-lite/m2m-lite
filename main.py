@@ -26,8 +26,10 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
+from nio.store import DefaultStore
 #from config_editor import load_config
 
+store_path = "nio_store"
 credentials = None
 
 class CustomFormatter(logging.Formatter):

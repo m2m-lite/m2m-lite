@@ -111,6 +111,7 @@ async def login_and_save():
     password = getpass.getpass(prompt="Matrix password: ")
 
     try:
+        config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
         client = AsyncClient(homeserver, username)
         response = await client.login(password)
         
@@ -458,36 +459,35 @@ async def main():
         else:
             # New login, save the credentials and then initialize the store
             matrix_client, credentials = await login_and_save()
-            
+
             # Ensure credentials is not None before proceeding
             if credentials:
+                # Initialize the store with the user_id and store_path from the credentials
                 store = DefaultStore(user_id=credentials['user_id'], device_id=credentials['device_id'], store_path=store_path)
-                # Additional configurations such as pickle_key can be added here as per the DefaultStore documentation
 
-                # Reconfigure the matrix client with the store
+                config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
+
+                # Reconfigure the matrix client with the new credentials and store
                 matrix_client = AsyncClient(
-                    credentials["homeserver"], 
-                    credentials["user_id"], 
-                    config=config, 
+                    credentials["homeserver"],
+                    credentials["user_id"],
+                    config=config,
                     ssl=ssl_context,
                 )
 
-            if matrix_client is None:
-                print("Could not log in with the provided credentials.")
-                return  # Exit the function if login failed
+                # Log in the client with the new credentials
+                matrix_client.restore_login(
+                    user_id=credentials["user_id"],
+                    device_id=credentials["device_id"],
+                    access_token=credentials["access_token"]
+                )
 
-        # Register the message callback with bot_user_id
-        matrix_client.add_event_callback(
-            on_room_message, 
-            (RoomMessageText, RoomMessageNotice)
-        )
+                # Load the stored session or sync tokens
+                matrix_client.load_store()
 
-        # Get the rooms from the config
-        matrix_rooms: List[dict] = relay_config["matrix_rooms"]
-
-        # Join the rooms specified in the config.yaml
-        for room in matrix_rooms:
-            await join_matrix_room(matrix_client, room["id"])
+                # Now that the client is logged in, try joining the rooms
+                for room in matrix_rooms:
+                    await join_matrix_room(matrix_client, room["id"])
 
         # Register the Meshtastic message callback
         logger.info("Listening for inbound radio messages ...")
@@ -508,6 +508,11 @@ async def main():
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
+
+    finally:
+        if matrix_client:
+            await matrix_client.close() # Close the Matrix client on exit
+    
 
 # Run the main function
 asyncio.run(main())

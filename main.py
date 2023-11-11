@@ -31,7 +31,6 @@ from nio.store import DefaultStore
 
 credentials = None
 store_path = "matrix_store/"
-store = DefaultStore(credentials['user_id'], store_path)
 
 class CustomFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, style="%", converter=None):
@@ -420,6 +419,8 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
 async def main():
     global matrix_client, credentials
 
+    store = None
+
     # Initialize the SQLite database
     initialize_database()
 
@@ -432,7 +433,10 @@ async def main():
             # Load existing credentials
             with open("credentials.json", "r") as f:
                 credentials = json.load(f)
-            
+
+            # Initialize the store with the user_id and store_path from the credentials
+            store = DefaultStore(user_id=credentials['user_id'], device_id=credentials['device_id'], store_path=store_path)
+
             # Configure the Matrix client with the existing credentials and store
             config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
             matrix_client = AsyncClient(
@@ -440,7 +444,7 @@ async def main():
                 credentials["user_id"], 
                 config=config, 
                 ssl=ssl_context,
-                store=store  # Pass the store to the client
+                store_path=store_path,
             )
             matrix_client.restore_login(
                 user_id=credentials["user_id"],
@@ -448,10 +452,22 @@ async def main():
                 access_token=credentials["access_token"]
             )
         else:
-            # Call login_and_save without parameters
+            # New login, save the credentials and then initialize the store
             matrix_client, credentials = await login_and_save()
-            # Create the store after login
-            store = DefaultStore(credentials['user_id'], store_path)
+            
+            # Ensure credentials is not None before proceeding
+            if credentials:
+                store = DefaultStore(user_id=credentials['user_id'], device_id=credentials['device_id'], store_path=store_path)
+                # Additional configurations such as pickle_key can be added here as per the DefaultStore documentation
+
+                # Reconfigure the matrix client with the store
+                matrix_client = AsyncClient(
+                    credentials["homeserver"], 
+                    credentials["user_id"], 
+                    config=config, 
+                    ssl=ssl_context,
+                    store=store  # Pass the store to the client
+                )
 
             if matrix_client is None:
                 print("Could not log in with the provided credentials.")
@@ -478,16 +494,17 @@ async def main():
 
         # Start the Matrix client
         while True:
-            # Update longname & shortname
+            # Update longnames and shortnames
             update_longnames()
             update_shortnames()
 
             logger.info("Syncing with Matrix server...")
-            await matrix_client.sync_forever(timeout=30000)
+            await matrix_client.sync_forever(timeout=30000)  # Sync with the Matrix server
             logger.info("Sync completed.")
-            await asyncio.sleep(60)  # Update longnames every 60 seconds
+            await asyncio.sleep(60)  # Delay to control the sync frequency
 
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
 
+# Run the main function
 asyncio.run(main())

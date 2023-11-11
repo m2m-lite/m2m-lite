@@ -451,7 +451,7 @@ async def main():
                 device_id=credentials["device_id"],
                 access_token=credentials["access_token"]
             )
-            await matrix_client.load_store()
+            
         else:
             # New login, save the credentials and then initialize the store
             matrix_client, credentials = await login_and_save()

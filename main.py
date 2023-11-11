@@ -89,6 +89,26 @@ def initialize_database():
             "CREATE TABLE IF NOT EXISTS shortnames (meshtastic_id TEXT PRIMARY KEY, shortname TEXT)")
         conn.commit()
 
+async def create_logged_in_client(credentials, ssl_context):
+    # Create a new AsyncClient instance with the saved credentials
+    client = AsyncClient(
+        credentials["homeserver"],
+        credentials["user_id"],
+        ssl=ssl_context,
+    )
+
+    # Restore the previous session
+    client.restore_login(
+        user_id=credentials["user_id"],
+        device_id=credentials["device_id"],
+        access_token=credentials["access_token"]
+    )
+
+    # Load the stored session or sync tokens
+    client.load_store()
+
+    return client
+
 async def login_and_save():
     
     global credentials  # Declare credentials as global to modify the global instance
@@ -437,63 +457,23 @@ async def main():
             with open("credentials.json", "r") as f:
                 credentials = json.load(f)
 
-            # Initialize the store with the user_id and store_path from the credentials
-            store = DefaultStore(user_id=credentials['user_id'], device_id=credentials['device_id'], store_path=store_path)
-
-            # Configure the Matrix client with the existing credentials and store
-            config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
-            matrix_client = AsyncClient(
-                credentials["homeserver"], 
-                credentials["user_id"], 
-                config=config, 
-                ssl=ssl_context,
-            )
-            matrix_client.restore_login(
-                user_id=credentials["user_id"],
-                device_id=credentials["device_id"],
-                access_token=credentials["access_token"]
-            )
-
-            matrix_client.load_store()
+            # Create a logged-in client with the saved credentials
+            matrix_client = await create_logged_in_client(credentials, ssl_context)
 
         else:
-            # New login, save the credentials and then initialize the store
+            # New login, save the credentials without any arguments
             matrix_client, credentials = await login_and_save()
+            if matrix_client is None:
+                print("Could not log in with the provided credentials.")
+                return
 
-            # Ensure credentials is not None before proceeding
-            if credentials:
-                # Initialize the store with the user_id and store_path from the credentials
-                store = DefaultStore(user_id=credentials['user_id'], device_id=credentials['device_id'], store_path=store_path)
-
-                config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
-
-                # Reconfigure the matrix client with the new credentials and store
-                matrix_client = AsyncClient(
-                    credentials["homeserver"],
-                    credentials["user_id"],
-                    config=config,
-                    ssl=ssl_context,
-                )
-
-                # Log in the client with the new credentials
-                matrix_client.restore_login(
-                    user_id=credentials["user_id"],
-                    device_id=credentials["device_id"],
-                    access_token=credentials["access_token"]
-                )
-
-                # Load the stored session or sync tokens
-                matrix_client.load_store()
-
-                # Now that the client is logged in, try joining the rooms
-                for room in matrix_rooms:
-                    await join_matrix_room(matrix_client, room["id"])
+        # Join rooms after login, whether it's the first time or with saved credentials
+        for room in matrix_rooms:
+            await join_matrix_room(matrix_client, room["id"])
 
         # Register the Meshtastic message callback
         logger.info("Listening for inbound radio messages ...")
-        pub.subscribe(
-            on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop()
-        )
+        pub.subscribe(on_meshtastic_message, "meshtastic.receive", loop=asyncio.get_event_loop())
 
         # Start the Matrix client
         while True:
@@ -512,7 +492,7 @@ async def main():
     finally:
         if matrix_client:
             await matrix_client.close() # Close the Matrix client on exit
-    
+            logger.info("Matrix client closed.")   
 
 # Run the main function
 asyncio.run(main())

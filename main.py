@@ -419,8 +419,6 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
 async def main():
     global matrix_client, credentials
 
-    store = None
-
     # Initialize the SQLite database
     initialize_database()
 
@@ -444,14 +442,13 @@ async def main():
                 credentials["user_id"], 
                 config=config, 
                 ssl=ssl_context,
-                store_path=store_path,
             )
             matrix_client.restore_login(
                 user_id=credentials["user_id"],
                 device_id=credentials["device_id"],
                 access_token=credentials["access_token"]
             )
-            
+
         else:
             # New login, save the credentials and then initialize the store
             matrix_client, credentials = await login_and_save()
@@ -467,7 +464,6 @@ async def main():
                     credentials["user_id"], 
                     config=config, 
                     ssl=ssl_context,
-                    store=store  # Pass the store to the client
                 )
 
             if matrix_client is None:

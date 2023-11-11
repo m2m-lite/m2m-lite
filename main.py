@@ -92,15 +92,6 @@ def initialize_database():
 async def login_and_save():
     global credentials, store_path
 
-    # Check if the security-key.txt exists and set the secure_backup_key if it does
-    security_key_path = "security-key.txt"
-    secure_backup_key = None
-
-    if os.path.isfile(security_key_path):
-        with open(security_key_path, "r") as key_file:
-            secure_backup_key = key_file.read().strip()
-            print("Security key loaded successfully.")
-
     # Prompt the user for their username, password, and homeserver
     print("First time setup detected.")
     homeserver = input("Matrix homeserver URL (e.g., https://server.com): ")
@@ -110,11 +101,9 @@ async def login_and_save():
     # Create SSL context using certifi's certificates
     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-    # Configure the Matrix client with encryption enabled and the security key if present
+    # Configure the Matrix client with encryption enabled
     config = AsyncClientConfig(
-        encryption_enabled=True,
-        store_sync_tokens=True,
-        secure_backup_key=secure_backup_key
+        encryption_enabled=True
     )
     client = AsyncClient(homeserver, username, config=config, ssl=ssl_context)
 
@@ -122,45 +111,9 @@ async def login_and_save():
         response = await client.login(password)
 
         if isinstance(response, LoginResponse):
-            credentials = {
-                "user_id": response.user_id,
-                "device_id": response.device_id,
-                "access_token": response.access_token,
-                "homeserver": homeserver
-            }
-
-            # Ensure the store_path directory exists
-            if not os.path.isdir(store_path):
-                os.makedirs(store_path)
-
-            # Save credentials in the store_path directory
-            credentials_path = os.path.join(store_path, "credentials.json")
-            with open(credentials_path, "w") as f:
-                json.dump(credentials, f)
-
-            # Initialize the store with the user_id, device_id, and store_path
-            client.store = DefaultStore(credentials['user_id'], credentials['device_id'], store_path)
-
-            # Load or create an Olm account and sessions
-            if not client.store.load_account():
-                logger.debug("No existing Olm account, creating a new one.")
-                client.create_account()
-            else:
-                logger.debug("Loaded existing Olm account from the store.")
-            
-            client.load_store()
-
-            # Save the Olm account and any sessions if they are not already saved
-            client.store.save_account(client.olm_account)
-            client.store.save_sessions(client.olm_account.sessions)
-
-            # Finally, save the sync token if necessary
-            if client.should_upload_keys:
-                await client.keys_upload()
-
+            # Processing after successful login...
             print("Login successful. Credentials and session saved.")
             return client, credentials
-
         else:
             print("Login failed. Please check your username/password and try again.")
             return None, None

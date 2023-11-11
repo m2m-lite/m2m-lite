@@ -27,8 +27,11 @@ from nio import (
 from pubsub import pub
 from yaml.loader import SafeLoader
 from typing import List, Union
+from nio.store import DefaultStore
 
 credentials = None
+store_path = "matrix_store/"
+store = DefaultStore(credentials['user_id'], store_path)
 
 class CustomFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, style="%", converter=None):
@@ -184,15 +187,6 @@ def update_shortnames():
                 meshtastic_id = user["id"]
                 shortname = user.get("shortName", "N/A")
                 save_shortname(meshtastic_id, shortname)
-
-# Function to export and save the encryption keys securely
-async def save_keys(client):
-    # Export keys
-    exported_keys = await client.keys_export("passphrase")  # Use a secure passphrase
-    # Save them securely, possibly encrypted with another layer of security
-    with open("keys_backup.json", "w") as f:
-        json.dump(exported_keys, f)
-
 
 async def join_matrix_room(matrix_client, room_id_or_alias: str) -> None:
     try:
@@ -439,13 +433,14 @@ async def main():
             with open("credentials.json", "r") as f:
                 credentials = json.load(f)
             
-            # Configure the Matrix client with the existing credentials
+            # Configure the Matrix client with the existing credentials and store
             config = AsyncClientConfig(encryption_enabled=True, store_sync_tokens=True)
             matrix_client = AsyncClient(
                 credentials["homeserver"], 
                 credentials["user_id"], 
                 config=config, 
-                ssl=ssl_context
+                ssl=ssl_context,
+                store=store  # Pass the store to the client
             )
             matrix_client.restore_login(
                 user_id=credentials["user_id"],
@@ -455,6 +450,8 @@ async def main():
         else:
             # Call login_and_save without parameters
             matrix_client, credentials = await login_and_save()
+            # Create the store after login
+            store = DefaultStore(credentials['user_id'], store_path)
 
             if matrix_client is None:
                 print("Could not log in with the provided credentials.")

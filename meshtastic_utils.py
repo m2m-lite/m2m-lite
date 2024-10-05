@@ -8,14 +8,14 @@ import serial.tools.list_ports
 from pubsub import pub
 
 from config import relay_config
-from db_utils import save_longname, save_shortname
+from db_utils import save_longname, save_shortname, get_longname, get_shortname
 from log_utils import get_logger
-from message_handler import handle_meshtastic_message
 
 meshtastic_logger = get_logger("Meshtastic")
 
+# Use module-level variables
 meshtastic_interface = None
-event_loop = None  # Will be set in main()
+meshtastic_event_loop = None  # Will be set in main()
 meshtastic_lock = threading.Lock()
 reconnecting = False
 shutting_down = False
@@ -32,7 +32,7 @@ async def connect_meshtastic(force_connect=False):
     """
     Establish a connection to the Meshtastic device.
     """
-    global meshtastic_interface, shutting_down, reconnecting, event_loop
+    global meshtastic_interface, shutting_down, reconnecting, meshtastic_event_loop
 
     if shutting_down:
         meshtastic_logger.info("Shutdown in progress. Not attempting to connect.")
@@ -82,6 +82,9 @@ async def connect_meshtastic(force_connect=False):
                 pub.subscribe(on_meshtastic_message, "meshtastic.receive")
                 pub.subscribe(on_lost_meshtastic_connection, "meshtastic.connection.lost")
 
+                # Subscribe to messages from Matrix
+                pub.subscribe(send_to_meshtastic_from_matrix, "matrix.send_to_meshtastic")
+
             except Exception as e:
                 if shutting_down:
                     meshtastic_logger.info("Shutdown in progress. Aborting connection attempts.")
@@ -101,7 +104,7 @@ def on_lost_meshtastic_connection(interface=None):
     """
     Callback function invoked when the Meshtastic connection is lost.
     """
-    global meshtastic_interface, reconnecting, shutting_down, event_loop, reconnect_task
+    global meshtastic_interface, reconnecting, shutting_down, meshtastic_event_loop, reconnect_task
     with meshtastic_lock:
         if shutting_down:
             meshtastic_logger.info("Shutdown in progress. Not attempting to reconnect.")
@@ -119,8 +122,8 @@ def on_lost_meshtastic_connection(interface=None):
                 meshtastic_logger.warning(f"Error closing Meshtastic client: {e}")
             meshtastic_interface = None
 
-        if event_loop:
-            reconnect_task = event_loop.create_task(reconnect())
+        if meshtastic_event_loop:
+            reconnect_task = meshtastic_event_loop.create_task(reconnect())
 
 async def reconnect():
     """
@@ -146,16 +149,6 @@ async def reconnect():
     finally:
         reconnecting = False
 
-def on_meshtastic_message(packet):
-    """
-    Handle incoming Meshtastic messages.
-    """
-    if shutting_down:
-        return
-
-    # Process the message
-    asyncio.run_coroutine_threadsafe(handle_meshtastic_message(packet), event_loop)
-
 def update_longnames():
     if meshtastic_interface and meshtastic_interface.nodes:
         for node in meshtastic_interface.nodes.values():
@@ -173,3 +166,82 @@ def update_shortnames():
                 meshtastic_id = user["id"]
                 shortname = user.get("shortName", "N/A")
                 save_shortname(meshtastic_id, shortname)
+
+def truncate_message(text, max_bytes=227):
+    """
+    Truncate the given text to fit within the specified byte size.
+    """
+    truncated_text = text.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
+    return truncated_text
+
+def on_meshtastic_message(packet, interface):
+    """
+    Handle incoming Meshtastic messages.
+    """
+    if shutting_down:
+        return
+
+    asyncio.run_coroutine_threadsafe(handle_meshtastic_message(packet), meshtastic_event_loop)
+
+async def handle_meshtastic_message(packet):
+    sender = packet["fromId"]
+
+    if "text" in packet["decoded"] and packet["decoded"]["text"]:
+        text = packet["decoded"]["text"]
+
+        if "channel" in packet:
+            channel = packet["channel"]
+        else:
+            if packet["decoded"]["portnum"] == "TEXT_MESSAGE_APP":
+                channel = 0
+            else:
+                meshtastic_logger.debug("Unknown packet")
+                return
+
+        # Check if the channel is mapped to a Matrix room in the configuration
+        channel_mapped = False
+        for room in relay_config["matrix_rooms"]:
+            if room["meshtastic_channel"] == channel:
+                channel_mapped = True
+                break
+
+        if not channel_mapped:
+            meshtastic_logger.debug(f"Skipping message from unmapped channel {channel}")
+            return
+
+        meshtastic_logger.info(f"Processing inbound radio message from {sender} on channel {channel}")
+
+        longname = get_longname(sender) or sender
+        shortname = get_shortname(sender) or sender
+        meshnet_name = relay_config["meshtastic"]["meshnet_name"]
+
+        formatted_message = f"[{longname}/{meshnet_name}]: {text}"
+        meshtastic_logger.info(f"Relaying Meshtastic message from {longname} to Matrix: {formatted_message}")
+
+        # Publish the message to be sent to Matrix
+        for room in relay_config["matrix_rooms"]:
+            if room["meshtastic_channel"] == channel:
+                pub.sendMessage(
+                    "meshtastic.send_to_matrix",
+                    room_id=room["id"],
+                    message=formatted_message,
+                    longname=longname,
+                    shortname=shortname,
+                    meshnet_name=meshnet_name,
+                )
+    else:
+        portnum = packet["decoded"]["portnum"]
+        if portnum == "TELEMETRY_APP":
+            meshtastic_logger.debug("Ignoring Telemetry packet")
+        elif portnum == "POSITION_APP":
+            meshtastic_logger.debug("Ignoring Position packet")
+        elif portnum == "ADMIN_APP":
+            meshtastic_logger.debug("Ignoring Admin packet")
+        else:
+            meshtastic_logger.debug("Ignoring Unknown packet")
+
+def send_to_meshtastic_from_matrix(text, channelIndex):
+    if meshtastic_interface:
+        meshtastic_interface.sendText(text=text, channelIndex=channelIndex)
+    else:
+        meshtastic_logger.warning("Cannot send message: Meshtastic client is not connected.")

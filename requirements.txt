@@ -1,5 +1,5 @@
 meshtastic
-matrix-nio==0.22.1
+matrix-nio==0.20.2
 certifi==2024.8.30
 aiohttp==3.10.9
 pubsub==0.1.2

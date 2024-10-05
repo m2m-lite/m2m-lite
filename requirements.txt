@@ -1,6 +1,6 @@
 meshtastic
-matrix-nio==0.22.1
-certifi==2023.7.22
-aiohttp==3.8.6
+matrix-nio==0.20.2
+certifi==2024.8.30
+aiohttp==3.10.9
 pubsub==0.1.2
-PyYAML==6.0.1
+PyYAML==6.0.2

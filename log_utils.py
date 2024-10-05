@@ -23,7 +23,10 @@ def utc_converter(timestamp, _):
 def get_logger(name: str):
     # Configure logging
     logger = logging.getLogger(name)
-    log_level = getattr(logging, relay_config["logging"]["level"].upper())
+
+    # Get logging level from config, default to INFO
+    logging_level_str = relay_config.get("logging", {}).get("level", "INFO").upper()
+    log_level = getattr(logging, logging_level_str, logging.INFO)
     logger.setLevel(log_level)
     logger.propagate = False
 

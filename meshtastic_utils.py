@@ -221,6 +221,7 @@ async def handle_meshtastic_message(packet):
         # Publish the message to be sent to Matrix
         for room in relay_config["matrix_rooms"]:
             if room["meshtastic_channel"] == channel:
+                meshtastic_logger.debug(f"Publishing message to Matrix room {room['id']}")
                 pub.sendMessage(
                     "meshtastic.send_to_matrix",
                     room_id=room["id"],
@@ -241,7 +242,12 @@ async def handle_meshtastic_message(packet):
             meshtastic_logger.debug("Ignoring Unknown packet")
 
 def send_to_meshtastic_from_matrix(text, channelIndex):
+    meshtastic_logger.debug(f"send_to_meshtastic_from_matrix called with text='{text}', channelIndex={channelIndex}")
     if meshtastic_interface:
-        meshtastic_interface.sendText(text=text, channelIndex=channelIndex)
+        try:
+            meshtastic_interface.sendText(text=text, channelIndex=channelIndex)
+            meshtastic_logger.info("Sent message to Meshtastic")
+        except Exception as e:
+            meshtastic_logger.error(f"Error sending message to Meshtastic: {e}")
     else:
         meshtastic_logger.warning("Cannot send message: Meshtastic client is not connected.")

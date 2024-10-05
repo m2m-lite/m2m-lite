@@ -10,7 +10,6 @@ from nio import (
     MatrixRoom,
     RoomMessageText,
     RoomMessageNotice,
-    Event,
 )
 from pubsub import pub
 
@@ -92,6 +91,7 @@ async def join_matrix_room(room_id_or_alias: str) -> None:
                 )
                 return
             room_id = response.room_id
+            update_matrix_room_id(room_id_or_alias, room_id)
         else:
             room_id = room_id_or_alias
 
@@ -113,10 +113,21 @@ def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
     matrix_rooms = relay_config["matrix_rooms"]
     for room in matrix_rooms:
         if room["id"] == room_id_or_alias:
-            room["id"] = resolved_room_id
+            room["resolved_id"] = resolved_room_id
             break
 
-async def matrix_relay(room_id, message, longname, shortname, meshnet_name):
+def get_room_id(room_id_or_alias: str) -> str:
+    """
+    Get the resolved room ID for a given room ID or alias.
+    """
+    matrix_rooms = relay_config["matrix_rooms"]
+    for room in matrix_rooms:
+        if room["id"] == room_id_or_alias or room.get("resolved_id") == room_id_or_alias:
+            return room.get("resolved_id", room["id"])
+    return room_id_or_alias  # Return original if not found
+
+async def matrix_relay(room_id_or_alias, message, longname, shortname, meshnet_name):
+    room_id = get_room_id(room_id_or_alias)
     try:
         content = {
             "msgtype": "m.text",
@@ -134,13 +145,16 @@ async def matrix_relay(room_id, message, longname, shortname, meshnet_name):
             timeout=5.0,
         )
         matrix_logger.info(f"Sent inbound radio message to matrix room: {room_id}")
-
     except asyncio.TimeoutError:
         matrix_logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
         matrix_logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
 
 def handle_meshtastic_relay(room_id, message, longname, shortname, meshnet_name):
+    if matrix_event_loop is None:
+        matrix_logger.error("matrix_event_loop is None")
+        return
+    matrix_logger.debug(f"handle_meshtastic_relay called with room_id={room_id}, message='{message}'")
     asyncio.run_coroutine_threadsafe(
         matrix_relay(
             room_id,
@@ -213,17 +227,18 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
 
     room_config = None
     for config in relay_config["matrix_rooms"]:
-        if config["id"] == room.room_id:
+        if get_room_id(config["id"]) == room.room_id:
             room_config = config
             break
 
     if room_config:
         meshtastic_channel = room_config["meshtastic_channel"]
 
-        if relay_config["meshtastic"]["broadcast_enabled"]:
+        if relay_config["meshtastic"].get("broadcast_enabled", True):
             matrix_logger.info(
                 f"Sending radio message from {full_display_name} to radio broadcast"
             )
+            matrix_logger.debug(f"Publishing message to Meshtastic: {full_message}")
             pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
         else:
             matrix_logger.debug(

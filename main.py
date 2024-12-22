@@ -1,124 +1,152 @@
+"""
+This script connects a Meshtastic mesh network to Matrix chat rooms by relaying messages between them.
+It uses Meshtastic-python and Matrix nio client library to interface with the radio and the Matrix server respectively.
+"""
+
 import asyncio
+import logging
 import signal
 import sys
+from typing import List
 
+from nio import RoomMessageNotice, RoomMessageText
+
+# Import meshtastic_utils as a module to set event_loop
+import meshtastic_utils
 from config import relay_config
-from db_utils import initialize_database
+from db_utils import (
+    initialize_database,
+    update_longnames,
+    update_shortnames,
+)
 from log_utils import get_logger
-import meshtastic_utils  # Import the module instead of variables
-import matrix_utils  # Import the module instead of variables
+from matrix_utils import connect_matrix, join_matrix_room
+from matrix_utils import logger as matrix_logger
+from matrix_utils import on_room_message
+from meshtastic_utils import connect_meshtastic
+from meshtastic_utils import logger as meshtastic_logger
 
-logger = get_logger("M<>M Relay")
+# Initialize logger
+logger = get_logger(name="m2m-lite")
 
-shutdown_event = asyncio.Event()
+# Extract Matrix configuration
+matrix_rooms: List[dict] = relay_config["matrix_rooms"]
+
+# Set the logging level for 'nio' to ERROR to suppress warnings
+logging.getLogger("nio").setLevel(logging.ERROR)
 
 async def main():
-    global shutdown_event
+    """
+    Main asynchronous function to set up and run the relay.
+    Includes logic for wiping the message_map if configured in db.msg_map.wipe_on_restart.
+    Also updates longnames and shortnames periodically as before.
+    """
+    # Set the event loop in meshtastic_utils
+    meshtastic_utils.event_loop = asyncio.get_event_loop()
 
     # Initialize the SQLite database
     initialize_database()
 
-    # Set up signal handling
-    loop = asyncio.get_running_loop()
-    meshtastic_utils.meshtastic_event_loop = loop  # Set the event loop in meshtastic_utils
-    matrix_utils.matrix_event_loop = loop  # Set the event loop in matrix_utils
+    # Connect to Meshtastic
+    meshtastic_utils.meshtastic_client = connect_meshtastic()
+
+    # Connect to Matrix
+    matrix_client = await connect_matrix()
+    if matrix_client is None:
+        logger.error("Failed to connect to Matrix. Exiting.")
+        return
+
+    # Join the rooms specified in the config.yaml
+    for room in matrix_rooms:
+        await join_matrix_room(matrix_client, room["id"])
+
+    # Register the message callback for Matrix
+    matrix_logger.info("Listening for inbound Matrix messages...")
+    matrix_client.add_event_callback(
+        on_room_message, (RoomMessageText, RoomMessageNotice)
+    )
+
+    # Set up shutdown event
+    shutdown_event = asyncio.Event()
 
     async def shutdown():
-        logger.info("Shutdown signal received. Closing down...")
-        meshtastic_utils.shutting_down = True
+        matrix_logger.info("Shutdown signal received. Closing down...")
+        meshtastic_utils.shutting_down = True  # Set the shutting_down flag
         shutdown_event.set()
 
+    loop = asyncio.get_running_loop()
+
+    # Handle signals differently based on the platform
     if sys.platform != "win32":
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
     else:
-        pass  # On Windows, rely on KeyboardInterrupt
+        # On Windows, we can't use add_signal_handler, so we'll handle KeyboardInterrupt
+        pass
 
+    # Start the Matrix client sync loop
     try:
-        # Connect to Matrix
-        await matrix_utils.connect_matrix()
-        if matrix_utils.matrix_client is None:
-            logger.error("Failed to connect to Matrix server. Exiting.")
-            return
+        while not shutdown_event.is_set():
+            try:
+                if meshtastic_utils.meshtastic_client:
+                    # Update longnames & shortnames
+                    update_longnames(meshtastic_utils.meshtastic_client.nodes)
+                    update_shortnames(meshtastic_utils.meshtastic_client.nodes)
+                else:
+                    meshtastic_logger.warning("Meshtastic client is not connected.")
 
-        # Join Matrix rooms
-        await matrix_utils.join_matrix_rooms()
+                matrix_logger.info("Starting Matrix sync loop...")
+                sync_task = asyncio.create_task(
+                    matrix_client.sync_forever(timeout=30000)
+                )
+                shutdown_task = asyncio.create_task(shutdown_event.wait())
+                done, pending = await asyncio.wait(
+                    [sync_task, shutdown_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_event.is_set():
+                    matrix_logger.info("Shutdown event detected. Stopping sync loop...")
+                    sync_task.cancel()
+                    try:
+                        await sync_task
+                    except asyncio.CancelledError:
+                        pass
+                    break
+            except Exception as e:
+                if shutdown_event.is_set():
+                    break
+                matrix_logger.error(f"Error syncing with Matrix server: {e}")
+                await asyncio.sleep(5)  # Wait before retrying
+    except KeyboardInterrupt:
+        await shutdown()
+    finally:
+        # Cleanup
+        matrix_logger.info("Closing Matrix client...")
+        await matrix_client.close()
+        if meshtastic_utils.meshtastic_client:
+            meshtastic_logger.info("Closing Meshtastic client...")
+            try:
+                meshtastic_utils.meshtastic_client.close()
+            except Exception as e:
+                meshtastic_logger.warning(f"Error closing Meshtastic client: {e}")
 
-        # Connect to Meshtastic
-        await meshtastic_utils.connect_meshtastic()
-        if meshtastic_utils.meshtastic_interface is None:
-            logger.error("Failed to connect to Meshtastic device. Exiting.")
-            return
+        # Cancel the reconnect task if it exists
+        if meshtastic_utils.reconnect_task:
+            meshtastic_utils.reconnect_task.cancel()
+            meshtastic_logger.info("Cancelled Meshtastic reconnect task.")
 
-        # Start the Matrix client sync loop
-        try:
-            while not shutdown_event.is_set():
-                try:
-                    if meshtastic_utils.meshtastic_interface:
-                        # Update longnames & shortnames
-                        meshtastic_utils.update_longnames()
-                        meshtastic_utils.update_shortnames()
-                    else:
-                        meshtastic_utils.meshtastic_logger.warning("Meshtastic client is not connected.")
-
-                    matrix_utils.matrix_logger.info("Starting Matrix sync loop...")
-                    sync_task = asyncio.create_task(
-                        matrix_utils.matrix_client.sync_forever(timeout=30000)
-                    )
-                    shutdown_task = asyncio.create_task(shutdown_event.wait())
-                    done, pending = await asyncio.wait(
-                        [sync_task, shutdown_task],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    if shutdown_event.is_set():
-                        matrix_utils.matrix_logger.info("Shutdown event detected. Stopping sync loop...")
-                        sync_task.cancel()
-                        try:
-                            await sync_task
-                        except asyncio.CancelledError:
-                            pass
-                        break
-                except Exception as e:
-                    if shutdown_event.is_set():
-                        break
-                    matrix_utils.matrix_logger.error(f"Error syncing with Matrix server: {e}")
-                    await asyncio.sleep(5)  # Wait before retrying
-        except KeyboardInterrupt:
-            await shutdown()
-        finally:
-            # Cleanup
-            if matrix_utils.matrix_client:
-                matrix_utils.matrix_logger.info("Closing Matrix client...")
-                await matrix_utils.matrix_client.close()
-            else:
-                matrix_utils.matrix_logger.warning("Matrix client was not initialized.")
-
-            if meshtastic_utils.meshtastic_interface:
-                meshtastic_utils.meshtastic_logger.info("Closing Meshtastic client...")
-                try:
-                    meshtastic_utils.meshtastic_interface.close()
-                except Exception as e:
-                    meshtastic_utils.meshtastic_logger.warning(f"Error closing Meshtastic client: {e}")
-            else:
-                meshtastic_utils.meshtastic_logger.warning("Meshtastic client was not initialized.")
-
-            # Cancel the reconnect task if it exists
-            if meshtastic_utils.reconnect_task:
-                meshtastic_utils.reconnect_task.cancel()
-                meshtastic_utils.meshtastic_logger.info("Cancelled Meshtastic reconnect task.")
-
-            # Cancel any remaining tasks
-            tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
-            for task in tasks:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-            matrix_utils.matrix_logger.info("Shutdown complete.")
-
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}")
+        # Cancel any remaining tasks
+        tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for task in tasks:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        matrix_logger.info("Shutdown complete.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

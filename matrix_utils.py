@@ -221,7 +221,7 @@ async def join_matrix_room(room_id_or_alias: str) -> None:
                     f"Failed to join room '{room_id_or_alias}': {response.message}"
                 )
         else:
-            matrix_logger.debug(f"Bot is already in room '{room_id_or_alias}'")
+            matrix_logger.info(f"Bot is already in room '{room_id_or_alias}'")
     except Exception as e:
         matrix_logger.error(f"Error joining room '{room_id_or_alias}': {e}")
 

@@ -24,9 +24,14 @@ from meshtastic_utils import connect_meshtastic
 # Extract Matrix configuration
 matrix_homeserver = relay_config["matrix"]["homeserver"]
 matrix_rooms: List[dict] = relay_config["matrix_rooms"]
+# Use "user_id" for backwards compatibility, but also support "bot_user_id"
+matrix_user_id = relay_config["matrix"].get(
+    "bot_user_id", relay_config["matrix"].get("user_id")
+)
 matrix_access_token = relay_config["matrix"]["access_token"]
 
-bot_user_id = relay_config["matrix"]["bot_user_id"]
+# Keep bot_user_id for compatibility with previous versions
+bot_user_id = matrix_user_id
 bot_user_name = None  # Detected upon logon
 bot_start_time = int(
     time.time() * 1000

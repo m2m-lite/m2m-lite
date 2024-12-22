@@ -6,6 +6,7 @@ from log_utils import get_logger
 
 logger = get_logger("db_utils")
 
+
 # Initialize SQLite database
 def initialize_database():
     """
@@ -23,6 +24,7 @@ def initialize_database():
             conn.commit()
     except sqlite3.Error as e:
         logger.error(f"Error initializing database: {e}")
+
 
 # Get the longname for a given Meshtastic ID
 def get_longname(meshtastic_id):
@@ -44,6 +46,7 @@ def get_longname(meshtastic_id):
         logger.error(f"Error getting longname for {meshtastic_id}: {e}")
         return None
 
+
 # Get the shortname for a given Meshtastic ID
 def get_shortname(meshtastic_id):
     """
@@ -56,13 +59,15 @@ def get_shortname(meshtastic_id):
         with sqlite3.connect("meshtastic.sqlite") as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT shortname FROM shortnames WHERE meshtastic_id=?", (meshtastic_id,)
+                "SELECT shortname FROM shortnames WHERE meshtastic_id=?",
+                (meshtastic_id,),
             )
             result = cursor.fetchone()
         return result[0] if result else None
     except sqlite3.Error as e:
         logger.error(f"Error getting shortname for {meshtastic_id}: {e}")
         return None
+
 
 # Save the longname for a given Meshtastic ID
 def save_longname(meshtastic_id, longname):
@@ -82,6 +87,7 @@ def save_longname(meshtastic_id, longname):
             conn.commit()
     except sqlite3.Error as e:
         logger.error(f"Error saving longname for {meshtastic_id}: {e}")
+
 
 # Save the shortname for a given Meshtastic ID
 def save_shortname(meshtastic_id, shortname):

@@ -6,6 +6,7 @@ import sys
 import yaml
 from yaml.loader import SafeLoader
 
+
 def get_app_path():
     """
     Get the base directory of the application.
@@ -18,6 +19,7 @@ def get_app_path():
     else:
         # Running in a normal Python environment
         return os.path.dirname(os.path.abspath(__file__))
+
 
 relay_config = {}
 config_path = os.path.join(get_app_path(), "config.yaml")

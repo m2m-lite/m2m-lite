@@ -1,26 +1,26 @@
 """Matrix utilities for m2m-lite."""
 
 import asyncio
+import getpass
+import json
+import re
 import ssl
 import time
-import re
-import json
-import getpass
 from typing import Union
 
+import meshtastic.protobuf.portnums_pb2
 from nio import (
     AsyncClient,
     AsyncClientConfig,
     LoginResponse,
     MatrixRoom,
-    RoomMessageText,
     RoomMessageNotice,
+    RoomMessageText,
 )
 from pubsub import pub
 
 from config import relay_config
 from log_utils import get_logger
-import meshtastic.protobuf.portnums_pb2
 
 matrix_logger = get_logger("Matrix")
 
@@ -31,7 +31,10 @@ matrix_event_loop = None  # Will be set in main()
 # Timestamp when the bot starts, used to filter out old messages
 bot_start_time = int(time.time() * 1000)
 
-async def create_matrix_client(homeserver: str, user_id: str, password: str = None, access_token: str = None):
+
+async def create_matrix_client(
+    homeserver: str, user_id: str, password: str = None, access_token: str = None
+):
     """
     Create and configure a Matrix client.
     """
@@ -47,7 +50,11 @@ async def create_matrix_client(homeserver: str, user_id: str, password: str = No
     if access_token:
         matrix_client.access_token = access_token
         matrix_client.user_id = user_id
-        return matrix_client, {"user_id": user_id, "access_token": access_token, "homeserver": homeserver}
+        return matrix_client, {
+            "user_id": user_id,
+            "access_token": access_token,
+            "homeserver": homeserver,
+        }
 
     if password:
         response = await matrix_client.login(password)
@@ -57,7 +64,7 @@ async def create_matrix_client(homeserver: str, user_id: str, password: str = No
                 "user_id": response.user_id,
                 "device_id": response.device_id,
                 "access_token": response.access_token,
-                "homeserver": homeserver
+                "homeserver": homeserver,
             }
         else:
             matrix_logger.error(f"Failed to login: {response.message}")
@@ -66,29 +73,36 @@ async def create_matrix_client(homeserver: str, user_id: str, password: str = No
     matrix_logger.error("Either password or access_token must be provided.")
     return None, None
 
+
 async def login_and_save():
     """
     Prompt the user for Matrix credentials and save them to credentials.json.
     """
     # Prompt the user for their username, password, and homeserver
     print("First time setup detected.")
-    homeserver = input("Matrix homeserver URL (e.g., server.com or https://server.com): ")
+    homeserver = input(
+        "Matrix homeserver URL (e.g., server.com or https://server.com): "
+    )
     username = input("Matrix username: ")
 
     # Ensure that the homeserver URL is well-formed
     if not homeserver.startswith("http://") and not homeserver.startswith("https://"):
         homeserver = "https://" + homeserver
-    homeserver = homeserver.rstrip('/')  # Remove trailing slash if present
+    homeserver = homeserver.rstrip("/")  # Remove trailing slash if present
 
     # Format username to include the full user ID if not provided
     username = f"@{username}" if not username.startswith("@") else username
-    username = f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
+    username = (
+        f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
+    )
 
     # Securely prompt for the password without echoing it
     password = getpass.getpass(prompt="Matrix password: ")
 
     try:
-        matrix_client, credentials = await create_matrix_client(homeserver, username, password=password)
+        matrix_client, credentials = await create_matrix_client(
+            homeserver, username, password=password
+        )
 
         if matrix_client:
             with open("credentials.json", "w") as f:
@@ -116,17 +130,27 @@ async def connect_matrix():
     try:
         with open("credentials.json", "r") as f:
             credentials = json.load(f)
-        matrix_client, _ = await create_matrix_client(credentials["homeserver"], credentials["user_id"], access_token=credentials["access_token"])
+        matrix_client, _ = await create_matrix_client(
+            credentials["homeserver"],
+            credentials["user_id"],
+            access_token=credentials["access_token"],
+        )
         matrix_logger.info("Logged in using credentials from credentials.json")
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         # If loading from credentials.json fails, try config.yaml
         if "matrix" in relay_config:
             matrix_server = relay_config["matrix"]["homeserver"]
-            user_id = relay_config["matrix"].get("user_id")  # user_id might not be in config.yaml
-            access_token = relay_config["matrix"].get("access_token")  # access_token might not be in config.yaml
+            user_id = relay_config["matrix"].get(
+                "user_id"
+            )  # user_id might not be in config.yaml
+            access_token = relay_config["matrix"].get(
+                "access_token"
+            )  # access_token might not be in config.yaml
 
             if access_token and user_id:
-                matrix_client, _ = await create_matrix_client(matrix_server, user_id, access_token=access_token)
+                matrix_client, _ = await create_matrix_client(
+                    matrix_server, user_id, access_token=access_token
+                )
                 matrix_logger.info("Logged in using credentials from config.yaml")
             else:
                 # If config.yaml doesn't have the access token or user id, prompt the user
@@ -162,6 +186,7 @@ async def connect_matrix():
 
     return matrix_client
 
+
 async def join_matrix_rooms():
     """
     Join the Matrix rooms specified in the configuration.
@@ -169,6 +194,7 @@ async def join_matrix_rooms():
     matrix_rooms = relay_config["matrix_rooms"]
     for room in matrix_rooms:
         await join_matrix_room(room["id"])
+
 
 async def join_matrix_room(room_id_or_alias: str) -> None:
     """Join a Matrix room by its ID or alias."""
@@ -199,6 +225,7 @@ async def join_matrix_room(room_id_or_alias: str) -> None:
     except Exception as e:
         matrix_logger.error(f"Error joining room '{room_id_or_alias}': {e}")
 
+
 def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
     """
     Update the matrix_rooms list in the config with resolved room IDs.
@@ -209,15 +236,20 @@ def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
             room["resolved_id"] = resolved_room_id
             break
 
+
 def get_room_id(room_id_or_alias: str) -> str:
     """
     Get the resolved room ID for a given room ID or alias.
     """
     matrix_rooms = relay_config["matrix_rooms"]
     for room in matrix_rooms:
-        if room["id"] == room_id_or_alias or room.get("resolved_id") == room_id_or_alias:
+        if (
+            room["id"] == room_id_or_alias
+            or room.get("resolved_id") == room_id_or_alias
+        ):
             return room.get("resolved_id", room["id"])
     return room_id_or_alias  # Return original if not found
+
 
 async def matrix_relay(room_id_or_alias, message, longname, shortname, meshnet_name):
     """
@@ -244,7 +276,10 @@ async def matrix_relay(room_id_or_alias, message, longname, shortname, meshnet_n
     except asyncio.TimeoutError:
         matrix_logger.error("Timed out while waiting for Matrix response")
     except Exception as e:
-        matrix_logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
+        matrix_logger.error(
+            f"Error sending radio message to matrix room {room_id}: {e}"
+        )
+
 
 def handle_meshtastic_relay(room_id, message, longname, shortname, meshnet_name):
     """
@@ -253,7 +288,9 @@ def handle_meshtastic_relay(room_id, message, longname, shortname, meshnet_name)
     if matrix_event_loop is None:
         matrix_logger.error("matrix_event_loop is None")
         return
-    matrix_logger.debug(f"handle_meshtastic_relay called with room_id={room_id}, message='{message}'")
+    matrix_logger.debug(
+        f"handle_meshtastic_relay called with room_id={room_id}, message='{message}'"
+    )
     asyncio.run_coroutine_threadsafe(
         matrix_relay(
             room_id,
@@ -265,6 +302,7 @@ def handle_meshtastic_relay(room_id, message, longname, shortname, meshnet_name)
         loop=matrix_event_loop,
     )
 
+
 def truncate_message(text, max_bytes=227):
     """
     Truncate the given text to fit within the specified byte size.
@@ -272,7 +310,10 @@ def truncate_message(text, max_bytes=227):
     truncated_text = text.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
     return truncated_text
 
-async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]) -> None:
+
+async def on_room_message(
+    room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]
+) -> None:
     """
     Handle incoming Matrix room messages.
     """
@@ -297,7 +338,9 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
     except (AttributeError, KeyError) as e:
         # Handle cases where 'content' is None or missing expected keys
         matrix_logger.warning(f"Error extracting data from event: {e}")
-        matrix_logger.warning(f"Problematic event content: {event.source.get('content')}")
+        matrix_logger.warning(
+            f"Problematic event content: {event.source.get('content')}"
+        )
         longname = None
         shortname = None
         meshnet_name = None
@@ -320,13 +363,13 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
             # Skip processing if message is from our own meshnet (loopback)
             return
     else:
-        display_name_response = await matrix_client.get_displayname(
-            event.sender
-        )
+        display_name_response = await matrix_client.get_displayname(event.sender)
         full_display_name = display_name_response.displayname or event.sender
         short_display_name = full_display_name[:5]
         prefix = f"{short_display_name}[M]: "
-        matrix_logger.info(f"Processing matrix message from [{full_display_name}]: {text}")
+        matrix_logger.info(
+            f"Processing matrix message from [{full_display_name}]: {text}"
+        )
         text = truncate_message(text)
         full_message = f"{prefix}{text}"
 
@@ -348,24 +391,46 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
             # Check if this is a detection sensor message
             if relay_config["meshtastic"].get("detection_sensor", False):
                 try:
-                    if "DETECTION_SENSOR_APP" == event.source["content"]["meshtastic_portnum"]:
-                        matrix_logger.info("Relaying detection sensor data to Meshtastic")
+                    if (
+                        "DETECTION_SENSOR_APP"
+                        == event.source["content"]["meshtastic_portnum"]
+                    ):
+                        matrix_logger.info(
+                            "Relaying detection sensor data to Meshtastic"
+                        )
                         from meshtastic_utils import meshtastic_interface
+
                         meshtastic_interface.sendData(
                             data=full_message.encode("utf-8"),
                             portNum=meshtastic.protobuf.portnums_pb2.PortNum.DETECTION_SENSOR_APP,
-                            channelIndex=meshtastic_channel
+                            channelIndex=meshtastic_channel,
                         )
                     else:
                         # Regular message
-                        pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+                        pub.sendMessage(
+                            "matrix.send_to_meshtastic",
+                            text=full_message,
+                            channelIndex=meshtastic_channel,
+                        )
                 except KeyError:
-                    matrix_logger.warning(f"Event did not have 'meshtastic_portnum' key. Not a detection sensor message. {event.source}")
-                    pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+                    matrix_logger.warning(
+                        f"Event did not have 'meshtastic_portnum' key. Not a detection sensor message. {event.source}"
+                    )
+                    pub.sendMessage(
+                        "matrix.send_to_meshtastic",
+                        text=full_message,
+                        channelIndex=meshtastic_channel,
+                    )
                 except Exception as e:
-                    matrix_logger.error(f"Failed to send detection sensor data to Meshtastic: {e}")
+                    matrix_logger.error(
+                        f"Failed to send detection sensor data to Meshtastic: {e}"
+                    )
             else:
-                pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+                pub.sendMessage(
+                    "matrix.send_to_meshtastic",
+                    text=full_message,
+                    channelIndex=meshtastic_channel,
+                )
 
         else:
             matrix_logger.debug(

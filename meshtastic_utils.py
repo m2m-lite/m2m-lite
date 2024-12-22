@@ -3,16 +3,16 @@
 import asyncio
 import threading
 
-import meshtastic.tcp_interface
-import meshtastic.serial_interface
 import meshtastic.ble_interface
-import serial.tools.list_ports
-from pubsub import pub
-from bleak.exc import BleakDBusError, BleakError
+import meshtastic.serial_interface
+import meshtastic.tcp_interface
 import serial
+import serial.tools.list_ports
+from bleak.exc import BleakDBusError, BleakError
+from pubsub import pub
 
 from config import relay_config
-from db_utils import save_longname, save_shortname, get_longname, get_shortname
+from db_utils import get_longname, get_shortname, save_longname, save_shortname
 from log_utils import get_logger
 
 meshtastic_logger = get_logger("Meshtastic")
@@ -20,10 +20,13 @@ meshtastic_logger = get_logger("Meshtastic")
 # Use module-level variables
 meshtastic_interface = None
 meshtastic_event_loop = None  # Will be set in main()
-meshtastic_lock = threading.Lock()  # To prevent race conditions when accessing the Meshtastic interface
+meshtastic_lock = (
+    threading.Lock()
+)  # To prevent race conditions when accessing the Meshtastic interface
 reconnecting = False  # Flag to indicate if a reconnection attempt is in progress
 shutting_down = False  # Flag to indicate if the application is shutting down
 reconnect_task = None  # To keep track of the reconnection task
+
 
 def serial_port_exists(port_name):
     """
@@ -37,6 +40,7 @@ def serial_port_exists(port_name):
     """
     ports = [port.device for port in serial.tools.list_ports.comports()]
     return port_name in ports
+
 
 async def connect_meshtastic(force_connect=False):
     """
@@ -77,26 +81,38 @@ async def connect_meshtastic(force_connect=False):
         attempts = 1
         successful = False
 
-        while not successful and (retry_limit == 0 or attempts <= retry_limit) and not shutting_down:
+        while (
+            not successful
+            and (retry_limit == 0 or attempts <= retry_limit)
+            and not shutting_down
+        ):
             try:
                 if connection_type == "serial":
                     serial_port = relay_config["meshtastic"]["serial_port"]
-                    meshtastic_logger.info(f"Connecting to serial port {serial_port} ...")
+                    meshtastic_logger.info(
+                        f"Connecting to serial port {serial_port} ..."
+                    )
 
                     # Check if serial port exists before attempting connection
                     if not serial_port_exists(serial_port):
-                        meshtastic_logger.warning(f"Serial port {serial_port} does not exist. Waiting...")
+                        meshtastic_logger.warning(
+                            f"Serial port {serial_port} does not exist. Waiting..."
+                        )
                         await asyncio.sleep(5)
                         attempts += 1
                         continue
 
-                    meshtastic_interface = meshtastic.serial_interface.SerialInterface(serial_port)
+                    meshtastic_interface = meshtastic.serial_interface.SerialInterface(
+                        serial_port
+                    )
 
                 elif connection_type == "ble":
                     # BLE connection
                     ble_address = relay_config["meshtastic"].get("ble_address")
                     if ble_address:
-                        meshtastic_logger.info(f"Connecting to BLE address {ble_address} ...")
+                        meshtastic_logger.info(
+                            f"Connecting to BLE address {ble_address} ..."
+                        )
                         meshtastic_interface = meshtastic.ble_interface.BLEInterface(
                             address=ble_address,
                             noProto=False,
@@ -110,18 +126,26 @@ async def connect_meshtastic(force_connect=False):
                 else:  # connection_type == "tcp"
                     target_host = relay_config["meshtastic"]["host"]
                     meshtastic_logger.info(f"Connecting to radio at {target_host} ...")
-                    meshtastic_interface = meshtastic.tcp_interface.TCPInterface(hostname=target_host)
+                    meshtastic_interface = meshtastic.tcp_interface.TCPInterface(
+                        hostname=target_host
+                    )
 
                 successful = True
                 node_info = meshtastic_interface.getMyNodeInfo()
-                meshtastic_logger.info(f"Connected to {node_info['user']['shortName']} / {node_info['user']['hwModel']}")
+                meshtastic_logger.info(
+                    f"Connected to {node_info['user']['shortName']} / {node_info['user']['hwModel']}"
+                )
 
                 # Subscribe to relevant events using pubsub
                 pub.subscribe(on_meshtastic_message, "meshtastic.receive")
-                pub.subscribe(on_lost_meshtastic_connection, "meshtastic.connection.lost")
+                pub.subscribe(
+                    on_lost_meshtastic_connection, "meshtastic.connection.lost"
+                )
 
                 # Subscribe to messages from Matrix
-                pub.subscribe(send_to_meshtastic_from_matrix, "matrix.send_to_meshtastic")
+                pub.subscribe(
+                    send_to_meshtastic_from_matrix, "matrix.send_to_meshtastic"
+                )
 
             except (
                 serial.SerialException,
@@ -130,18 +154,27 @@ async def connect_meshtastic(force_connect=False):
                 Exception,
             ) as e:
                 if shutting_down:
-                    meshtastic_logger.info("Shutdown in progress. Aborting connection attempts.")
+                    meshtastic_logger.info(
+                        "Shutdown in progress. Aborting connection attempts."
+                    )
                     break
                 attempts += 1
                 if retry_limit == 0 or attempts <= retry_limit:
-                    wait_time = min(attempts * 2, 30)  # Exponential backoff, capped at 30 seconds
-                    meshtastic_logger.warning(f"Attempt #{attempts - 1} failed. Retrying in {wait_time} secs: {e}")
+                    wait_time = min(
+                        attempts * 2, 30
+                    )  # Exponential backoff, capped at 30 seconds
+                    meshtastic_logger.warning(
+                        f"Attempt #{attempts - 1} failed. Retrying in {wait_time} secs: {e}"
+                    )
                     await asyncio.sleep(wait_time)  # Wait before retrying
                 else:
-                    meshtastic_logger.error(f"Could not connect after {retry_limit} attempts: {e}")
+                    meshtastic_logger.error(
+                        f"Could not connect after {retry_limit} attempts: {e}"
+                    )
                     return None
 
     return meshtastic_interface
+
 
 def on_lost_meshtastic_connection(interface=None):
     """
@@ -160,10 +193,14 @@ def on_lost_meshtastic_connection(interface=None):
             meshtastic_logger.info("Shutdown in progress. Not attempting to reconnect.")
             return
         if reconnecting:
-            meshtastic_logger.info("Reconnection already in progress. Skipping additional reconnection attempt.")
+            meshtastic_logger.info(
+                "Reconnection already in progress. Skipping additional reconnection attempt."
+            )
             return
         reconnecting = True
-        meshtastic_logger.error("Lost connection to Meshtastic device. Attempting to reconnect...")
+        meshtastic_logger.error(
+            "Lost connection to Meshtastic device. Attempting to reconnect..."
+        )
 
         # Close the existing Meshtastic interface if it exists
         if meshtastic_interface:
@@ -183,6 +220,7 @@ def on_lost_meshtastic_connection(interface=None):
         if meshtastic_event_loop:
             reconnect_task = meshtastic_event_loop.create_task(reconnect())
 
+
 async def reconnect():
     """
     Attempt to reconnect to the Meshtastic device with exponential backoff.
@@ -201,14 +239,19 @@ async def reconnect():
                 meshtastic_logger.info("Reconnected to Meshtastic device.")
                 break  # Reconnection successful, exit the loop
 
-            meshtastic_logger.warning(f"Reconnection failed. Retrying in {backoff_time} seconds...")
+            meshtastic_logger.warning(
+                f"Reconnection failed. Retrying in {backoff_time} seconds..."
+            )
             await asyncio.sleep(backoff_time)
-            backoff_time = min(backoff_time * 2, 300)  # Increase backoff time, capped at 5 minutes
+            backoff_time = min(
+                backoff_time * 2, 300
+            )  # Increase backoff time, capped at 5 minutes
 
     except asyncio.CancelledError:
         meshtastic_logger.info("Reconnection task cancelled.")
     finally:
         reconnecting = False  # Reset the reconnection flag
+
 
 def update_longnames():
     """
@@ -222,6 +265,7 @@ def update_longnames():
                 longname = user.get("longName", "N/A")
                 save_longname(meshtastic_id, longname)
 
+
 def update_shortnames():
     """
     Update the database with shortnames from the Meshtastic node DB.
@@ -233,6 +277,7 @@ def update_shortnames():
                 meshtastic_id = user["id"]
                 shortname = user.get("shortName", "N/A")
                 save_shortname(meshtastic_id, shortname)
+
 
 def on_meshtastic_message(packet, interface):
     """
@@ -249,7 +294,10 @@ def on_meshtastic_message(packet, interface):
     if shutting_down:
         return
 
-    asyncio.run_coroutine_threadsafe(handle_meshtastic_message(packet), meshtastic_event_loop)
+    asyncio.run_coroutine_threadsafe(
+        handle_meshtastic_message(packet), meshtastic_event_loop
+    )
+
 
 async def handle_meshtastic_message(packet):
     """
@@ -298,7 +346,9 @@ async def handle_meshtastic_message(packet):
             meshtastic_logger.debug(f"Skipping message from unmapped channel {channel}")
             return
 
-        meshtastic_logger.info(f"Processing inbound radio message from {sender} on channel {channel}")
+        meshtastic_logger.info(
+            f"Processing inbound radio message from {sender} on channel {channel}"
+        )
 
         # Get longname and shortname from the database, or use the sender ID if not found
         longname = get_longname(sender) or sender
@@ -306,12 +356,16 @@ async def handle_meshtastic_message(packet):
         meshnet_name = relay_config["meshtastic"]["meshnet_name"]
 
         formatted_message = f"[{longname}/{meshnet_name}]: {text}"
-        meshtastic_logger.info(f"Relaying Meshtastic message from {longname} to Matrix: {formatted_message}")
+        meshtastic_logger.info(
+            f"Relaying Meshtastic message from {longname} to Matrix: {formatted_message}"
+        )
 
         # Publish the message to be sent to Matrix via the "meshtastic.send_to_matrix" topic
         for room in relay_config["matrix_rooms"]:
             if room["meshtastic_channel"] == channel:
-                meshtastic_logger.debug(f"Publishing message to Matrix room {room['id']}")
+                meshtastic_logger.debug(
+                    f"Publishing message to Matrix room {room['id']}"
+                )
                 pub.sendMessage(
                     "meshtastic.send_to_matrix",
                     room_id=room["id"],
@@ -328,12 +382,18 @@ async def handle_meshtastic_message(packet):
             if relay_config["meshtastic"].get("detection_sensor", False):
                 meshtastic_logger.info("Processing detection sensor data")
                 # Construct the message to send to Matrix
-                detection_data_message = f"Detection Sensor: {decoded.get('raw', {}).get('json', 'No data')}"
+                detection_data_message = (
+                    f"Detection Sensor: {decoded.get('raw', {}).get('json', 'No data')}"
+                )
 
                 # Send the detection data message to the appropriate Matrix room(s)
                 for room in relay_config["matrix_rooms"]:
-                    if room["meshtastic_channel"] == 0:  # Assuming channel 0 for detection sensor
-                        meshtastic_logger.debug(f"Publishing detection data message to Matrix room {room['id']}")
+                    if (
+                        room["meshtastic_channel"] == 0
+                    ):  # Assuming channel 0 for detection sensor
+                        meshtastic_logger.debug(
+                            f"Publishing detection data message to Matrix room {room['id']}"
+                        )
                         pub.sendMessage(
                             "meshtastic.send_to_matrix",
                             room_id=room["id"],
@@ -349,6 +409,7 @@ async def handle_meshtastic_message(packet):
             # Any other portnum we don't care about and can be silently ignored
             pass
 
+
 def send_to_meshtastic_from_matrix(text, channelIndex):
     """
     Send a message from Matrix to Meshtastic.
@@ -357,7 +418,9 @@ def send_to_meshtastic_from_matrix(text, channelIndex):
         text (str): The text of the message to send.
         channelIndex (int): The Meshtastic channel index to send the message on.
     """
-    meshtastic_logger.debug(f"send_to_meshtastic_from_matrix called with text='{text}', channelIndex={channelIndex}")
+    meshtastic_logger.debug(
+        f"send_to_meshtastic_from_matrix called with text='{text}', channelIndex={channelIndex}"
+    )
     if meshtastic_interface:
         try:
             meshtastic_interface.sendText(text=text, channelIndex=channelIndex)
@@ -365,7 +428,10 @@ def send_to_meshtastic_from_matrix(text, channelIndex):
         except Exception as e:
             meshtastic_logger.error(f"Error sending message to Meshtastic: {e}")
     else:
-        meshtastic_logger.warning("Cannot send message: Meshtastic client is not connected.")
+        meshtastic_logger.warning(
+            "Cannot send message: Meshtastic client is not connected."
+        )
+
 
 async def check_connection():
     """
@@ -379,6 +445,8 @@ async def check_connection():
             try:
                 meshtastic_interface.sendPing()
             except Exception as e:
-                meshtastic_logger.error(f"{connection_type.capitalize()} connection lost: {e}")
+                meshtastic_logger.error(
+                    f"{connection_type.capitalize()} connection lost: {e}"
+                )
                 on_lost_meshtastic_connection(meshtastic_interface)
         await asyncio.sleep(5)  # Check connection every 5 seconds

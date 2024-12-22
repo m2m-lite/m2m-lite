@@ -1,10 +1,11 @@
 """Logging utilities for m2m-lite."""
 
 import logging
-import time
 import os
+import time
 
 from config import relay_config
+
 
 class CustomFormatter(logging.Formatter):
     """
@@ -24,11 +25,13 @@ class CustomFormatter(logging.Formatter):
             s = self.default_msec_format % (t, record.msecs)
         return s
 
+
 def utc_converter(timestamp, _):
     """
     Converter function to use UTC time.
     """
     return time.gmtime(timestamp)
+
 
 def get_logger(name: str, log_file=None):
     """

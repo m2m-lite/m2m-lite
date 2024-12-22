@@ -1,11 +1,15 @@
+"""Meshtastic utilities for m2m-lite."""
+
 import asyncio
 import threading
-import time
 
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
+import meshtastic.ble_interface
 import serial.tools.list_ports
 from pubsub import pub
+from bleak.exc import BleakDBusError, BleakError
+import serial
 
 from config import relay_config
 from db_utils import save_longname, save_shortname, get_longname, get_shortname
@@ -69,6 +73,22 @@ async def connect_meshtastic(force_connect=False):
                         continue
 
                     meshtastic_interface = meshtastic.serial_interface.SerialInterface(serial_port)
+
+                elif connection_type == "ble":
+                    # BLE connection
+                    ble_address = relay_config["meshtastic"].get("ble_address")
+                    if ble_address:
+                        meshtastic_logger.info(f"Connecting to BLE address {ble_address} ...")
+                        meshtastic_interface = meshtastic.ble_interface.BLEInterface(
+                            address=ble_address,
+                            noProto=False,
+                            debugOut=None,
+                            noNodes=False,
+                        )
+                    else:
+                        meshtastic_logger.error("No BLE address provided.")
+                        return None
+
                 else:
                     target_host = relay_config["meshtastic"]["host"]
                     meshtastic_logger.info(f"Connecting to radio at {target_host} ...")
@@ -85,7 +105,12 @@ async def connect_meshtastic(force_connect=False):
                 # Subscribe to messages from Matrix
                 pub.subscribe(send_to_meshtastic_from_matrix, "matrix.send_to_meshtastic")
 
-            except Exception as e:
+            except (
+                serial.SerialException,
+                BleakDBusError,
+                BleakError,
+                Exception,
+            ) as e:
                 if shutting_down:
                     meshtastic_logger.info("Shutdown in progress. Aborting connection attempts.")
                     break
@@ -118,6 +143,12 @@ def on_lost_meshtastic_connection(interface=None):
         if meshtastic_interface:
             try:
                 meshtastic_interface.close()
+            except OSError as e:
+                if e.errno == 9:
+                    # Bad file descriptor, already closed
+                    pass
+                else:
+                    meshtastic_logger.warning(f"Error closing Meshtastic client: {e}")
             except Exception as e:
                 meshtastic_logger.warning(f"Error closing Meshtastic client: {e}")
             meshtastic_interface = None
@@ -167,13 +198,6 @@ def update_shortnames():
                 shortname = user.get("shortName", "N/A")
                 save_shortname(meshtastic_id, shortname)
 
-def truncate_message(text, max_bytes=227):
-    """
-    Truncate the given text to fit within the specified byte size.
-    """
-    truncated_text = text.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
-    return truncated_text
-
 def on_meshtastic_message(packet, interface):
     """
     Handle incoming Meshtastic messages.
@@ -184,15 +208,27 @@ def on_meshtastic_message(packet, interface):
     asyncio.run_coroutine_threadsafe(handle_meshtastic_message(packet), meshtastic_event_loop)
 
 async def handle_meshtastic_message(packet):
+    """
+    Handle incoming Meshtastic messages, filter out unwanted packets, and relay to Matrix.
+    """
     sender = packet["fromId"]
 
-    if "text" in packet["decoded"] and packet["decoded"]["text"]:
-        text = packet["decoded"]["text"]
+    decoded = packet["decoded"]
+
+    if "text" in decoded and decoded["text"]:
+        text = decoded["text"]
+
+        # Filter out reaction packets
+        if "emoji" in decoded or "replyId" in decoded:
+            meshtastic_logger.debug(
+                "Filtered out reaction packet due to presence of 'emoji' or 'replyId'."
+            )
+            return
 
         if "channel" in packet:
             channel = packet["channel"]
         else:
-            if packet["decoded"]["portnum"] == "TEXT_MESSAGE_APP":
+            if decoded["portnum"] == "TEXT_MESSAGE_APP":
                 channel = 0
             else:
                 meshtastic_logger.debug("Unknown packet")
@@ -230,18 +266,43 @@ async def handle_meshtastic_message(packet):
                     shortname=shortname,
                     meshnet_name=meshnet_name,
                 )
+
     else:
-        portnum = packet["decoded"]["portnum"]
+        # Handle non-text messages (detection sensor)
+        portnum = decoded["portnum"]
         if portnum == "TELEMETRY_APP":
             meshtastic_logger.debug("Ignoring Telemetry packet")
         elif portnum == "POSITION_APP":
             meshtastic_logger.debug("Ignoring Position packet")
         elif portnum == "ADMIN_APP":
             meshtastic_logger.debug("Ignoring Admin packet")
+        elif portnum == "DETECTION_SENSOR_APP":
+            if relay_config["meshtastic"].get("detection_sensor", False):
+                meshtastic_logger.info("Processing detection sensor data")
+                # Construct the message to send to Matrix
+                detection_data_message = f"Detection Sensor: {decoded.get('raw', {}).get('json', 'No data')}"
+
+                # Send the detection data message to the appropriate Matrix room(s)
+                for room in relay_config["matrix_rooms"]:
+                    if room["meshtastic_channel"] == 0:  # Assuming channel 0 for detection sensor
+                        meshtastic_logger.debug(f"Publishing detection data message to Matrix room {room['id']}")
+                        pub.sendMessage(
+                            "meshtastic.send_to_matrix",
+                            room_id=room["id"],
+                            message=detection_data_message,
+                            longname=None,
+                            shortname=None,
+                            meshnet_name=None,
+                        )
+            else:
+                meshtastic_logger.debug("Ignoring Detection Sensor packet")
         else:
-            meshtastic_logger.debug("Ignoring Unknown packet")
+            meshtastic_logger.debug(f"Ignoring Unknown packet with portnum: {portnum}")
 
 def send_to_meshtastic_from_matrix(text, channelIndex):
+    """
+    Send a message from Matrix to Meshtastic.
+    """
     meshtastic_logger.debug(f"send_to_meshtastic_from_matrix called with text='{text}', channelIndex={channelIndex}")
     if meshtastic_interface:
         try:
@@ -251,3 +312,19 @@ def send_to_meshtastic_from_matrix(text, channelIndex):
             meshtastic_logger.error(f"Error sending message to Meshtastic: {e}")
     else:
         meshtastic_logger.warning("Cannot send message: Meshtastic client is not connected.")
+
+async def check_connection():
+    """
+    Periodically checks the Meshtastic connection by sending a ping.
+    If an error occurs, it attempts to reconnect.
+    """
+    global meshtastic_interface, shutting_down
+    connection_type = relay_config["meshtastic"]["connection_type"]
+    while not shutting_down:
+        if meshtastic_interface:
+            try:
+                meshtastic_interface.sendPing()
+            except Exception as e:
+                meshtastic_logger.error(f"{connection_type.capitalize()} connection lost: {e}")
+                on_lost_meshtastic_connection(meshtastic_interface)
+        await asyncio.sleep(5)  # Check connection every 5 seconds

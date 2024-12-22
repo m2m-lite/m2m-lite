@@ -1,9 +1,16 @@
+"""Logging utilities for m2m-lite."""
+
 import logging
 import time
+import os
 
 from config import relay_config
 
 class CustomFormatter(logging.Formatter):
+    """
+    Custom formatter that includes milliseconds and allows for UTC time conversion.
+    """
+
     def __init__(self, fmt=None, datefmt=None, style="%", converter=None):
         super().__init__(fmt, datefmt, style)
         self.converter = converter or time.localtime
@@ -18,9 +25,19 @@ class CustomFormatter(logging.Formatter):
         return s
 
 def utc_converter(timestamp, _):
+    """
+    Converter function to use UTC time.
+    """
     return time.gmtime(timestamp)
 
-def get_logger(name: str):
+def get_logger(name: str, log_file=None):
+    """
+    Get a logger with the given name.
+
+    :param name: The name of the logger.
+    :param log_file: Optional path to a log file.
+    :return: The logger instance.
+    """
     # Configure logging
     logger = logging.getLogger(name)
 
@@ -32,11 +49,20 @@ def get_logger(name: str):
 
     formatter = CustomFormatter(
         fmt="%(asctime)s %(levelname)s:%(name)s:%(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        converter=utc_converter,
+        datefmt="%Y-%m-%d %H:%M:%S.%f",  # Include milliseconds in the timestamp
+        converter=utc_converter,  # Use UTC time
     )
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+
+    if log_file:
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_file)
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    # Check if console logging is enabled in the config
+    if relay_config.get("logging", {}).get("console", True):
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     return logger

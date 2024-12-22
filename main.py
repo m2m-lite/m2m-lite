@@ -1,3 +1,11 @@
+"""
+m2m-lite: A minimalist Meshtastic-to-Matrix relay.
+
+This script connects a Meshtastic mesh network to Matrix chat rooms by relaying messages between them.
+It uses the Meshtastic-python library to interface with the radio and the Matrix nio client library
+to interact with the Matrix server.
+"""
+
 import asyncio
 import signal
 import sys
@@ -7,11 +15,14 @@ from log_utils import get_logger
 import meshtastic_utils
 import matrix_utils
 
-logger = get_logger("M<>M Relay")
+logger = get_logger("m2m-lite")
 
 shutdown_event = asyncio.Event()
 
 async def main():
+    """
+    Main function to set up and run the relay.
+    """
     global shutdown_event
 
     # Initialize the SQLite database
@@ -23,6 +34,9 @@ async def main():
     matrix_utils.matrix_event_loop = loop  # Set the event loop in matrix_utils
 
     async def shutdown():
+        """
+        Gracefully shut down the relay.
+        """
         logger.info("Shutdown signal received. Closing down...")
         meshtastic_utils.shutting_down = True
         shutdown_event.set()

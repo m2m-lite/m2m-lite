@@ -117,15 +117,19 @@ async def connect_matrix():
         matrix_logger.info("Logged in using credentials from credentials.json")
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         # If loading from credentials.json fails, try config.yaml
-        matrix_server = relay_config["matrix"]["homeserver"]
-        user_id = relay_config["matrix"]["user_id"]
-        access_token = relay_config["matrix"].get("access_token")  # access_token might not be in config.yaml
+        if "matrix" in relay_config:
+            matrix_server = relay_config["matrix"]["homeserver"]
+            user_id = relay_config["matrix"]["user_id"]
+            access_token = relay_config["matrix"].get("access_token")  # access_token might not be in config.yaml
 
-        if access_token:
-            matrix_client, _ = await create_matrix_client(matrix_server, user_id, access_token=access_token)
-            matrix_logger.info("Logged in using credentials from config.yaml")
+            if access_token:
+                matrix_client, _ = await create_matrix_client(matrix_server, user_id, access_token=access_token)
+                matrix_logger.info("Logged in using credentials from config.yaml")
+            else:
+                # If config.yaml doesn't have the access token, prompt the user
+                matrix_client, credentials = await login_and_save()
         else:
-            # If config.yaml doesn't have the access token, prompt the user
+            # If there's no 'matrix' section in config.yaml, prompt the user directly
             matrix_client, credentials = await login_and_save()
 
     # If we have a client at this point, proceed with setting up callbacks and pubsub

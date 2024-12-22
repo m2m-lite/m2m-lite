@@ -2,11 +2,10 @@ import asyncio
 import signal
 import sys
 
-from config import relay_config
 from db_utils import initialize_database
 from log_utils import get_logger
-import meshtastic_utils  # Import the module instead of variables
-import matrix_utils  # Import the module instead of variables
+import meshtastic_utils
+import matrix_utils
 
 logger = get_logger("M<>M Relay")
 

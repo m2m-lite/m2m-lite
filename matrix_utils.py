@@ -2,11 +2,14 @@ import asyncio
 import ssl
 import time
 import re
+import json
+import getpass
 from typing import Union
 
 from nio import (
     AsyncClient,
     AsyncClientConfig,
+    LoginResponse,
     MatrixRoom,
     RoomMessageText,
     RoomMessageNotice,
@@ -25,50 +28,130 @@ matrix_event_loop = None  # Will be set in main()
 # Timestamp when the bot starts, used to filter out old messages
 bot_start_time = int(time.time() * 1000)
 
-async def connect_matrix():
+async def create_matrix_client(homeserver: str, user_id: str, password: str = None, access_token: str = None):
     """
-    Connect to the Matrix server.
+    Create and configure a Matrix client.
     """
-    global matrix_client
-    global bot_user_name
-
-    matrix_server = relay_config["matrix"]["homeserver"]
-    access_token = relay_config["matrix"]["access_token"]
-    user_id = relay_config["matrix"]["user_id"]
-
     ssl_context = ssl.create_default_context()
-
     config = AsyncClientConfig(encryption_enabled=False, store_sync_tokens=True)
     matrix_client = AsyncClient(
-        matrix_server,
+        homeserver,
         user_id,
         config=config,
         ssl=ssl_context,
     )
-    matrix_client.access_token = access_token
+
+    if access_token:
+        matrix_client.access_token = access_token
+        matrix_client.user_id = user_id
+        return matrix_client, {"user_id": user_id, "access_token": access_token, "homeserver": homeserver}
+
+    if password:
+        response = await matrix_client.login(password)
+        if isinstance(response, LoginResponse):
+            matrix_logger.info("Logged in using password.")
+            return matrix_client, {
+                "user_id": response.user_id,
+                "device_id": response.device_id,
+                "access_token": response.access_token,
+                "homeserver": homeserver
+            }
+        else:
+            matrix_logger.error(f"Failed to login: {response.message}")
+            return None, None
+
+    matrix_logger.error("Either password or access_token must be provided.")
+    return None, None
+
+async def login_and_save():
+    """
+    Prompt the user for Matrix credentials and save them to credentials.json.
+    """
+    # Prompt the user for their username, password, and homeserver
+    print("First time setup detected.")
+    homeserver = input("Matrix homeserver URL (e.g., server.com or https://server.com): ")
+    username = input("Matrix username: ")
+
+    # Ensure that the homeserver URL is well-formed
+    if not homeserver.startswith("http://") and not homeserver.startswith("https://"):
+        homeserver = "https://" + homeserver
+    homeserver = homeserver.rstrip('/')  # Remove trailing slash if present
+
+    # Format username to include the full user ID if not provided
+    username = f"@{username}" if not username.startswith("@") else username
+    username = f"{username}:{homeserver.split('//')[1]}" if ":" not in username else username
+
+    # Securely prompt for the password without echoing it
+    password = getpass.getpass(prompt="Matrix password: ")
 
     try:
-        # Sync to verify connection
-        await matrix_client.sync(timeout=3000)
-        matrix_logger.info("Connected to Matrix server.")
+        matrix_client, credentials = await create_matrix_client(homeserver, username, password=password)
 
-        # Get bot's display name
-        response = await matrix_client.get_displayname(user_id)
-        bot_user_name = response.displayname
+        if matrix_client:
+            with open("credentials.json", "w") as f:
+                json.dump(credentials, f)
+            print("Login successful. Credentials saved.")
+            return matrix_client, credentials
 
-        # Register the message callback
-        matrix_client.add_event_callback(
-            on_room_message,
-            (RoomMessageText, RoomMessageNotice),
-        )
-
-        # Subscribe to Meshtastic messages
-        pub.subscribe(handle_meshtastic_relay, "meshtastic.send_to_matrix")
+        else:
+            print("Login failed. Please check your username/password and try again.")
+            return None, None
 
     except Exception as e:
-        matrix_logger.error(f"Failed to connect to Matrix server: {e}")
-        matrix_client = None  # Ensure matrix_client is set to None
-        return None
+        print(f"An error occurred during login: {e}")
+        return None, None
+
+
+async def connect_matrix():
+    """
+    Connect to the Matrix server using credentials from file or user input.
+    """
+    global matrix_client
+    global bot_user_name
+
+    # First, try to load credentials from credentials.json
+    try:
+        with open("credentials.json", "r") as f:
+            credentials = json.load(f)
+        matrix_client, _ = await create_matrix_client(credentials["homeserver"], credentials["user_id"], access_token=credentials["access_token"])
+        matrix_logger.info("Logged in using credentials from credentials.json")
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        # If loading from credentials.json fails, try config.yaml
+        matrix_server = relay_config["matrix"]["homeserver"]
+        user_id = relay_config["matrix"]["user_id"]
+        access_token = relay_config["matrix"].get("access_token")  # access_token might not be in config.yaml
+
+        if access_token:
+            matrix_client, _ = await create_matrix_client(matrix_server, user_id, access_token=access_token)
+            matrix_logger.info("Logged in using credentials from config.yaml")
+        else:
+            # If config.yaml doesn't have the access token, prompt the user
+            matrix_client, credentials = await login_and_save()
+
+    # If we have a client at this point, proceed with setting up callbacks and pubsub
+    if matrix_client:
+        try:
+            # Sync to verify connection
+            await matrix_client.sync(timeout=3000)
+            matrix_logger.info("Connected to Matrix server.")
+
+            # Get bot's display name
+            response = await matrix_client.get_displayname(matrix_client.user_id)
+            bot_user_name = response.displayname
+
+            # Register the message callback
+            matrix_client.add_event_callback(
+                on_room_message,
+                (RoomMessageText, RoomMessageNotice),
+            )
+
+            # Subscribe to Meshtastic messages
+            pub.subscribe(handle_meshtastic_relay, "meshtastic.send_to_matrix")
+
+        except Exception as e:
+            matrix_logger.error(f"Failed to connect to Matrix server: {e}")
+            matrix_client = None  # Ensure matrix_client is set to None
+            return None
 
     return matrix_client
 

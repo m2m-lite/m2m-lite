@@ -1,17 +1,33 @@
-matrix_rooms: # Needs at least 1 room & channel, but supports all Meshtastic channels
-  - id: "!someroomid:example.matrix.org"
-    meshtastic_channel: 0
-  - id: "!someroomid2:example.matrix.org"
-    meshtastic_channel: 2
+# m2m-lite Configuration
 
+# --- Matrix Settings ---
+matrix:
+  homeserver: https://matrix.org # Your Matrix homeserver URL
+  # user_id and access_token only needed for backwards compatibility
+  # user_id: "@your-user:matrix.org"
+  # access_token: "YOUR_ACCESS_TOKEN"
+
+# --- Matrix Rooms ---
+# Define the Matrix rooms where the bot will operate and the corresponding Meshtastic channels.
+# You need at least one room and channel, but you can add more.
+matrix_rooms:
+  - id: "#m2m-test:matrix.org" # The Matrix room ID or alias (e.g., #myroom:matrix.org)
+    meshtastic_channel: 0 # The Meshtastic channel index (0 for the primary channel)
+  - id: "!anotherroomid:matrix.org" # You can use room IDs directly as well
+    meshtastic_channel: 2 # Example: Meshtastic channel index 2
+
+# --- Meshtastic Settings ---
 meshtastic:
-  connection_type: serial # Choose either "network" or "serial"
-  serial_port: /dev/ttyUSB0 # Only used when connection is "serial"
-  host: meshtastic.local # Only used when connection is "network"
-  meshnet_name: Your Meshnet Name # This is displayed in full on Matrix, but is truncated when sent to a Meshnet
-  broadcast_enabled: true
+  connection_type: serial # Choose the connection type: "serial", "ble", or "network"
+  serial_port: /dev/ttyUSB0 # The serial port of your Meshtastic device (e.g., /dev/ttyUSB0, COM3) - Required for "serial" connection
+  ble_address: XX:XX:XX:XX:XX:XX # The Bluetooth MAC address of your Meshtastic device - Required for "ble" connection
+  host: meshtastic.local # The hostname or IP address of your Meshtastic device - Required for "network" connection
+  meshnet_name: MESHNET # A name for your Meshtastic mesh network (will be displayed in Matrix messages)
+  broadcast_enabled: true # Set to 'true' to relay messages to the Meshtastic network, 'false' otherwise
+  detection_sensor: false # Set to 'true' to enable relaying of detection sensor data, 'false' otherwise
 
+# --- Logging Settings ---
 logging:
-  level: debug
-  show_timestamps: true
-  timestamp_format: "[%H:%M:%S]"
+  level: INFO # The logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_to_file: true # Set to 'true' to log to a file, 'false' to log only to the console
+  log_file: m2m-lite.log # The name of the log file (if log_to_file is true)

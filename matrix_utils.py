@@ -138,22 +138,18 @@ async def connect_matrix():
         matrix_logger.info("Logged in using credentials from credentials.json")
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         # If loading from credentials.json fails, try config.yaml
-        if "matrix" in relay_config:
-            matrix_server = relay_config["matrix"]["homeserver"]
-            user_id = relay_config["matrix"].get(
-                "user_id"
-            )  # user_id might not be in config.yaml
-            access_token = relay_config["matrix"].get(
-                "access_token"
-            )  # access_token might not be in config.yaml
+        if "matrix" in relay_config and relay_config["matrix"] is not None:
+            matrix_server = relay_config["matrix"].get("homeserver")
+            user_id = relay_config["matrix"].get("user_id")
+            access_token = relay_config["matrix"].get("access_token")
 
-            if access_token and user_id:
+            if access_token and user_id and matrix_server:
                 matrix_client, _ = await create_matrix_client(
                     matrix_server, user_id, access_token=access_token
                 )
                 matrix_logger.info("Logged in using credentials from config.yaml")
             else:
-                # If config.yaml doesn't have the access token or user id, prompt the user
+                # If config.yaml doesn't have the necessary credentials, prompt the user
                 matrix_client, credentials = await login_and_save()
         else:
             # If there's no 'matrix' section in config.yaml, prompt the user directly
@@ -335,6 +331,13 @@ async def on_room_message(
         longname = event.source["content"].get("meshtastic_longname")
         shortname = event.source["content"].get("meshtastic_shortname", None)
         meshnet_name = event.source["content"].get("meshtastic_meshnet")
+
+        # Handle potential None values for format and formatted_body
+        if event.source["content"].get("format") is None:
+            matrix_logger.debug(f"Event has 'format' set to None: {event.event_id}")
+        if event.source["content"].get("formatted_body") is None:
+            matrix_logger.debug(f"Event has 'formatted_body' set to None: {event.event_id}")
+
     except (AttributeError, KeyError) as e:
         # Handle cases where 'content' is None or missing expected keys
         matrix_logger.warning(f"Error extracting data from event: {e}")

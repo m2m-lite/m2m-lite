@@ -31,8 +31,11 @@ def get_longname(meshtastic_id):
     """
     Get the longname for a given Meshtastic ID.
 
-    :param meshtastic_id: The Meshtastic ID.
-    :return: The longname, or None if not found.
+    Args:
+        meshtastic_id (str): The Meshtastic ID to look up.
+
+    Returns:
+        str or None: The longname if found, None otherwise.
     """
     try:
         with sqlite3.connect("meshtastic.sqlite") as conn:
@@ -52,8 +55,11 @@ def get_shortname(meshtastic_id):
     """
     Get the shortname for a given Meshtastic ID.
 
-    :param meshtastic_id: The Meshtastic ID.
-    :return: The shortname, or None if not found.
+    Args:
+        meshtastic_id (str): The Meshtastic ID to look up.
+
+    Returns:
+        str or None: The shortname if found, None otherwise.
     """
     try:
         with sqlite3.connect("meshtastic.sqlite") as conn:
@@ -74,8 +80,9 @@ def save_longname(meshtastic_id, longname):
     """
     Save the longname for a given Meshtastic ID.
 
-    :param meshtastic_id: The Meshtastic ID.
-    :param longname: The longname.
+    Args:
+        meshtastic_id (str): The Meshtastic ID.
+        longname (str): The longname to save.
     """
     try:
         with sqlite3.connect("meshtastic.sqlite") as conn:
@@ -94,8 +101,9 @@ def save_shortname(meshtastic_id, shortname):
     """
     Save the shortname for a given Meshtastic ID.
 
-    :param meshtastic_id: The Meshtastic ID.
-    :param shortname: The shortname.
+    Args:
+        meshtastic_id (str): The Meshtastic ID.
+        shortname (str): The shortname to save.
     """
     try:
         with sqlite3.connect("meshtastic.sqlite") as conn:

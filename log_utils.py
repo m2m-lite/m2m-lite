@@ -62,7 +62,8 @@ def get_logger(name: str, log_file=None):
     logger.addHandler(console_handler)
 
     # Log to file if enabled in config
-    if log_file:
+    if relay_config.get("logging", {}).get("log_to_file", False):
+        log_file = relay_config.get("logging", {}).get("log_file", f"{name}.log")
         log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_file)
         file_handler = logging.FileHandler(log_path)
         file_handler.setFormatter(formatter)

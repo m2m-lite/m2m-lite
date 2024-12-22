@@ -53,16 +53,16 @@ def get_logger(name: str, log_file=None):
         converter=utc_converter,  # Use UTC time
     )
 
+    # Always log to console
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # Log to file if enabled in config
     if log_file:
         log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_file)
         file_handler = logging.FileHandler(log_path)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-
-    # Check if console logging is enabled in the config
-    if relay_config.get("logging", {}).get("console", True):
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
 
     return logger

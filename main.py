@@ -17,7 +17,7 @@ import matrix_utils
 
 logger = get_logger("m2m-lite")
 
-shutdown_event = asyncio.Event()
+shutdown_event = asyncio.Event()  # Event to signal shutdown
 
 async def main():
     """
@@ -28,24 +28,29 @@ async def main():
     # Initialize the SQLite database
     initialize_database()
 
-    # Set up signal handling
+    # Set up signal handling for graceful shutdown
     loop = asyncio.get_running_loop()
-    meshtastic_utils.meshtastic_event_loop = loop  # Set the event loop in meshtastic_utils
-    matrix_utils.matrix_event_loop = loop  # Set the event loop in matrix_utils
+    meshtastic_utils.meshtastic_event_loop = loop  # Set the event loop for meshtastic_utils
+    matrix_utils.matrix_event_loop = loop  # Set the event loop for matrix_utils
 
     async def shutdown():
         """
         Gracefully shut down the relay.
+
+        This function closes connections to Matrix and Meshtastic, cancels pending tasks,
+        and sets the shutdown_event to stop the main loop.
         """
         logger.info("Shutdown signal received. Closing down...")
-        meshtastic_utils.shutting_down = True
-        shutdown_event.set()
+        meshtastic_utils.shutting_down = True  # Set the shutting_down flag in meshtastic_utils
+        shutdown_event.set()  # Signal the main loop to exit
 
     if sys.platform != "win32":
+        # Signal handling is different on Windows (no SIGTERM)
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
     else:
-        pass  # On Windows, rely on KeyboardInterrupt
+        # On Windows, rely on KeyboardInterrupt (Ctrl+C)
+        pass
 
     try:
         # Connect to Matrix
@@ -73,31 +78,30 @@ async def main():
                         meshtastic_utils.update_shortnames()
                     else:
                         meshtastic_utils.meshtastic_logger.warning("Meshtastic client is not connected.")
-
                     matrix_utils.matrix_logger.info("Starting Matrix sync loop...")
                     sync_task = asyncio.create_task(
                         matrix_utils.matrix_client.sync_forever(timeout=30000)
                     )
                     shutdown_task = asyncio.create_task(shutdown_event.wait())
                     done, pending = await asyncio.wait(
-                        [sync_task, shutdown_task],
-                        return_when=asyncio.FIRST_COMPLETED,
+                        [sync_task, shutdown_task],  # Await both tasks
+                        return_when=asyncio.FIRST_COMPLETED,  # Return when either task completes
                     )
                     if shutdown_event.is_set():
                         matrix_utils.matrix_logger.info("Shutdown event detected. Stopping sync loop...")
-                        sync_task.cancel()
+                        sync_task.cancel()  # Cancel the sync task
                         try:
-                            await sync_task
+                            await sync_task  # Await the cancelled task to ensure it's cleaned up
                         except asyncio.CancelledError:
                             pass
-                        break
+                        break  # Exit the loop
                 except Exception as e:
                     if shutdown_event.is_set():
-                        break
+                        break  # Ignore errors during shutdown
                     matrix_utils.matrix_logger.error(f"Error syncing with Matrix server: {e}")
                     await asyncio.sleep(5)  # Wait before retrying
         except KeyboardInterrupt:
-            await shutdown()
+            await shutdown()  # Handle Ctrl+C as a shutdown signal
         finally:
             # Cleanup
             if matrix_utils.matrix_client:
@@ -125,7 +129,7 @@ async def main():
             for task in tasks:
                 task.cancel()
                 try:
-                    await task
+                    await task  # Await cancelled tasks to ensure they're cleaned up
                 except asyncio.CancelledError:
                     pass
             matrix_utils.matrix_logger.info("Shutdown complete.")

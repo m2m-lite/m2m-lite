@@ -20,6 +20,7 @@ from pubsub import pub
 
 from config import relay_config
 from log_utils import get_logger
+import meshtastic.protobuf.portnums_pb2
 
 matrix_logger = get_logger("Matrix")
 
@@ -199,6 +200,9 @@ async def join_matrix_room(room_id_or_alias: str) -> None:
         matrix_logger.error(f"Error joining room '{room_id_or_alias}': {e}")
 
 def update_matrix_room_id(room_id_or_alias: str, resolved_room_id: str):
+    """
+    Update the matrix_rooms list in the config with resolved room IDs.
+    """
     matrix_rooms = relay_config["matrix_rooms"]
     for room in matrix_rooms:
         if room["id"] == room_id_or_alias:
@@ -216,6 +220,9 @@ def get_room_id(room_id_or_alias: str) -> str:
     return room_id_or_alias  # Return original if not found
 
 async def matrix_relay(room_id_or_alias, message, longname, shortname, meshnet_name):
+    """
+    Relay a message from Meshtastic to Matrix.
+    """
     room_id = get_room_id(room_id_or_alias)
     try:
         content = {
@@ -240,6 +247,9 @@ async def matrix_relay(room_id_or_alias, message, longname, shortname, meshnet_n
         matrix_logger.error(f"Error sending radio message to matrix room {room_id}: {e}")
 
 def handle_meshtastic_relay(room_id, message, longname, shortname, meshnet_name):
+    """
+    Handle a message received from Meshtastic.
+    """
     if matrix_event_loop is None:
         matrix_logger.error("matrix_event_loop is None")
         return
@@ -263,6 +273,9 @@ def truncate_message(text, max_bytes=227):
     return truncated_text
 
 async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMessageNotice]) -> None:
+    """
+    Handle incoming Matrix room messages.
+    """
     if event.sender == matrix_client.user_id:
         return  # Skip processing if the message is from the bot itself
 
@@ -281,8 +294,10 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
         longname = event.source["content"].get("meshtastic_longname")
         shortname = event.source["content"].get("meshtastic_shortname", None)
         meshnet_name = event.source["content"].get("meshtastic_meshnet")
-    except AttributeError:
+    except (AttributeError, KeyError) as e:
         # Handle cases where 'content' is None or missing expected keys
+        matrix_logger.warning(f"Error extracting data from event: {e}")
+        matrix_logger.warning(f"Problematic event content: {event.source.get('content')}")
         longname = None
         shortname = None
         meshnet_name = None
@@ -302,6 +317,7 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
             text = truncate_message(text)
             full_message = f"{prefix}{text}"
         else:
+            # Skip processing if message is from our own meshnet (loopback)
             return
     else:
         display_name_response = await matrix_client.get_displayname(
@@ -328,7 +344,29 @@ async def on_room_message(room: MatrixRoom, event: Union[RoomMessageText, RoomMe
                 f"Sending radio message from {full_display_name} to radio broadcast"
             )
             matrix_logger.debug(f"Publishing message to Meshtastic: {full_message}")
-            pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+
+            # Check if this is a detection sensor message
+            if relay_config["meshtastic"].get("detection_sensor", False):
+                try:
+                    if "DETECTION_SENSOR_APP" == event.source["content"]["meshtastic_portnum"]:
+                        matrix_logger.info("Relaying detection sensor data to Meshtastic")
+                        from meshtastic_utils import meshtastic_interface
+                        meshtastic_interface.sendData(
+                            data=full_message.encode("utf-8"),
+                            portNum=meshtastic.protobuf.portnums_pb2.PortNum.DETECTION_SENSOR_APP,
+                            channelIndex=meshtastic_channel
+                        )
+                    else:
+                        # Regular message
+                        pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+                except KeyError:
+                    matrix_logger.warning(f"Event did not have 'meshtastic_portnum' key. Not a detection sensor message. {event.source}")
+                    pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+                except Exception as e:
+                    matrix_logger.error(f"Failed to send detection sensor data to Meshtastic: {e}")
+            else:
+                pub.sendMessage("matrix.send_to_meshtastic", text=full_message, channelIndex=meshtastic_channel)
+
         else:
             matrix_logger.debug(
                 f"Broadcast not supported: Message from {full_display_name} dropped."
